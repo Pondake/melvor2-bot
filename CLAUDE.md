@@ -565,8 +565,11 @@ into bars by rule. No game files are modified.
   update_check, mining, ...) were dropped on every Save before.
 - After Load the game shows "Welcome Back! You were away for ..." (offline gains) and swallows every
   click until Confirm; `dismiss_popup` presses it (the title sits above the usual pop-up band). Before
-  that, every skill page "could not open" and the rotation skipped six activities in a minute. The
-  first look after the window appears waits 30 s (`Bot.game_missing`): the game is still loading.
+  that, every skill page "could not open" and the rotation skipped six activities in a minute. After
+  the window appears (`Bot.game_missing`) the bot polls `Game.start_screen` every 2-4 s (one quick
+  OCR pass, ~0.4 s) and presses Load as soon as Character Selection shows, then the ticks begin.
+- `Game.ui` remembers a failed scale measurement for 15 s: on screens without the sidebar (start
+  screen, loading) every read measured again (two OCR passes), and Load came 1:39 min after the window.
 - After a game restart the game opens on Character Selection. `dismiss_popup` clicks "Load" only
   when there is exactly one character; with more it leaves the choice to the user.
 - v0.11.7 (build 26886380): stance tooltips also show the XP split ("Attack 50%"), item stats in

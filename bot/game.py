@@ -332,7 +332,8 @@ class Game:
         size = tuple(self.win.raw.size)
         if self._scale and self._scale_size == size and time.time() - self._scale_at < 600:
             return self._scale
-        if not self._measuring:
+        # No sidebar (start screen, loading): every read would measure again, two OCR passes each.
+        if not self._measuring and time.time() - getattr(self, "_scale_failed_at", 0.0) > 15:
             self._measuring = True
             try:
                 measured = self._measure_scale()
@@ -346,6 +347,7 @@ class Game:
                     self.img = None  # the frame in hand has the old size
                 self._scale, self._scale_size, self._scale_at = TUNED_SCALE, size, time.time()
                 return self._scale
+            self._scale_failed_at = time.time()
         return self._scale if self._scale and self._scale_size == size else size[0] / REF_WIDTH
 
     def _measure_scale(self) -> float | None:
@@ -3346,6 +3348,24 @@ class Game:
     POPUP_TITLES = ("New Unlock", "Level Up", "Congratulations", "Achievement", "Mastery", "Unlocked",
                     "You can now access", "New Pet Located")
     POPUP_NEVER = ("Buy", "Purchase", "Sell", "Cost", "Delete", "Are you sure")
+
+    def start_screen(self) -> str:
+        """While the game starts: "loading", "loaded" (pressed Load on Character Selection), "choose"
+        (several characters: the user picks) or "game" (the game itself, or its Welcome Back dialog).
+        One quick OCR pass of the middle, so it can be asked every few seconds."""
+        img = self.win.capture()
+        h, w = img.shape[:2]
+        lines = ocr.read(img, (int(w * 0.15), int(h * 0.05), int(w * 0.70), int(h * 0.80)), 1.0)
+        if find(lines, "Welcome Back!", 0.85) or any("you were away" in norm(ln.text) for ln in lines):
+            return "game"
+        loads = [ln for ln in lines if similar(ln.text.strip(), "Load") >= 0.9 and len(ln.text.strip()) <= 5]
+        if loads and (find(lines, "Character Selection", 0.8) or find(lines, "Import Save", 0.8)):
+            if len(loads) > 1:
+                return "choose"
+            self.img = img
+            self.click(loads[0], "load the character (Character Selection)", settle=1.0)
+            return "loaded"
+        return "game" if self._measure_scale() else "loading"
 
     def dismiss_popup(self) -> str | None:
         """Close an info pop-up ("New Unlock! Quests") when one covers the page.

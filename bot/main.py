@@ -2511,10 +2511,16 @@ class Bot:
                         self.g.win.size  # raises GameWindowError while the window is still not there
                         # A window that just appeared is still loading: the first tick read an empty
                         # start screen as "nothing running" and switched the rotation before Load.
-                        log.info("game window appeared - giving it 30 s to load")
+                        # So look every few seconds until Character Selection (press Load) or the game.
+                        log.info("game window appeared - waiting for the start screen")
                         self.game_missing = False
-                        if self.ctl.stop.wait(30):
-                            break
+                        deadline, seen = time.time() + 180, ""
+                        while time.time() < deadline and not self.ctl.stop.is_set():
+                            seen = self.g.start_screen()
+                            if seen in ("game", "choose"):
+                                break
+                            self.ctl.stop.wait(2 if seen == "loading" else 4)
+                        log.info("start screen: %s", seen)
                     self.tick()
                     self.task = ""
                     self.state, self.problem, self.problem_code, self.errors = "running", "", "", 0
