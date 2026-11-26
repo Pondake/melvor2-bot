@@ -409,7 +409,12 @@ into bars by rule. No game files are modified.
 - Status bar: the first word that reads as a skill is the skill ("Herblore | Fishing Potion P1-A");
   the best match anywhere let "Fishing" win and Herblore was restarted every minute.
 - Potions are Toolbelt items (slot "<Skill> Potion"): "Potion" is in `TOOLBELT_WORDS`, and
-  "Toolbelt" in a description makes the item kind gear.
+  "Toolbelt" in a description makes the item kind gear. Their panel names no slot up top: the skill
+  comes from "Equip To: <Skill> Potion". A potion is used up, so when its slot holds the same potion
+  ("Will Replace: Woodcutting Potion P1-A (1)", compared by `_potion_base`) the bot presses All and
+  Equip To to add the whole stack; any other item in a taken slot stays the user's call.
+- Containers opened in the bank: `open_items.names`, `ALWAYS_OPEN` in `bot/main.py` (Small Survey
+  Findings, from Hunting) and every learned item of kind "container".
 - UI scale changes move things apart: Hunting animal names sit up to ~260 px (reference) left of
   their Select button at UI scale 0.90; at 160 no animal was found. Thieving reads the NPCs again
   when a fresh location shows none.

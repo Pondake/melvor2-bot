@@ -3299,6 +3299,12 @@ class Game:
 
     TOOLBELT_WORDS = ("Utility", "Helmet", "Gloves", "Boots", "Cape", "Amulet", "Ring", "Potion")  # potions sit in a Toolbelt slot
 
+    @staticmethod
+    def _potion_base(name: str) -> str:
+        """"Woodcutting Potion P1-A (1)" -> "Woodcutting Potion": the tier code and count differ by read."""
+        name = re.sub(r"\s*\([\d,.]+[KkMm]?\)\s*$", "", name.strip())  # "(1)", "(1,201)"
+        return re.sub(r"\s+P[\dIl]+\s*-?\s*[A-Z]?\s*$|\s+P\s*$", "", name).strip()
+
     def toolbelt_items(self, equip: bool = True) -> list[dict]:
         """Bank: every Toolbelt item (skill gear with a bonus) and its slots; fills an empty slot.
 
@@ -3323,6 +3329,9 @@ class Game:
                 done.add(title)
                 skill = next((m.group(1) for m in (re.search(r"Slot\W+(?:\S{1,2}\s+)?([A-Z][a-z]+)\s+[A-Z][a-z]+", ln.text)
                                                      for ln in panel if ln.cy < head.cy) if m), None)
+                if not skill:  # potions name no slot up top: "Equip To: Woodcutting Potion" does
+                    skill = next((m.group(1) for m in (re.search(r"Equip To\W+(?:\S{1,2}\s+)?([A-Z][a-z]+)\s+[A-Z][a-z]+", ln.text, re.I)
+                                                         for ln in panel if ln.cy > head.cy) if m), None)
                 top = sorted((ln for ln in panel if ln.cy < head.cy), key=lambda ln: ln.cy)
                 start = next((ln.cy for ln in top if "bonuses" in ln.text.lower()), None)
                 bonuses = [ln.text.strip() for ln in top if start is not None and ln.cy > start
@@ -3351,9 +3360,23 @@ class Game:
                          ", ".join(f"{s['n']} {s['state']}{' ' + s['item'] if s['item'] else ''}" for s in slots))
                 free = [s for s in slots if s["state"] == "free"]
                 wearing = any(similar(s["item"], title) >= 0.9 for s in slots)
+                # A potion is used up: the same potion in its slot ("Will Replace: Woodcutting Potion
+                # P1-A (1)") is topped up with the whole stack. Any other item in a taken slot stays.
+                refill = next((s for s in slots if s["state"] == "taken" and "potion" in title.lower()
+                               and similar(self._potion_base(s["item"]), self._potion_base(title)) >= 0.9), None)
                 if equip and stack >= 1 and free and not wearing:
                     self.click(free[0]["line"], f"equip {title} in {skill} Utility {free[0]['n']}", action=True)
                     entry["equipped"] = not self.dry_run
+                elif equip and stack >= 1 and refill:
+                    every = [b for b in panel if head.cy < b.cy < refill["line"].cy and re.search(r"\bAll\s*$", b.text)]
+                    if every:  # "All but 1 | All": the right end is All
+                        ln = min(every, key=lambda b: b.cy)
+                        self.click(Line("All", ln.x + ln.w - self.px(26), ln.y, self.px(22), ln.h),
+                                   f"all {stack} {title}", settle=0.5)
+                        self.click(refill["line"], f"top up {title} in {skill} Potion", action=True)
+                        entry["topped_up"] = 0 if self.dry_run else stack
+                    else:
+                        log.warning("gear: no All button for %s, not topped up", title)
         finally:
             self._clear_bank_search()
         return out

@@ -25,6 +25,9 @@ DEFAULT_CONFIG_PATH = RESOURCES / "config.default.json"  # shipped settings; con
 STATE_PATH = ROOT / "logs" / "state.json"  # what the bot last read from the game; safe to delete
 log = logging.getLogger("bot")
 
+# Containers opened in the bank besides `open_items.names` (Hunting gives Small Survey Findings).
+ALWAYS_OPEN = ["Small Survey Findings"]
+
 # Skills whose page is the recipe frame (categories, recipes, Create); trained up to a goal level.
 RECIPE_SKILLS = ["Fletching", "Runecrafting", "Crafting", "Herblore"]
 SUPPORTED_SKILLS = [*GRIDS, "Fishing", "Cooking", "Firemaking", "Thieving", "Combat", *RECIPE_SKILLS]  # GRIDS: skills whose page is a grid of cards
@@ -1767,11 +1770,15 @@ class Bot:
             for s in e["slots"]:
                 if s["item"] and s["item"] not in worn.setdefault(skill, []):
                     worn[skill].append(s["item"])
-            if e.get("equipped"):
+            if e.get("topped_up"):
+                log.info("gear: topped up %s for %s with %d", e["name"], skill, e["topped_up"])
+                self.event("gear", f"{e['name']} topped up for {skill} (+{e['topped_up']})")
+            elif e.get("equipped"):
                 log.info("gear: equipped %s for %s", e["name"], skill)
                 self.event("gear", f"{e['name']} equipped for {skill}" + (f" ({', '.join(e['bonuses'])})" if e["bonuses"] else ""))
                 worn.setdefault(skill, []).append(e["name"])
-            elif e["stack"] >= 1 and not any(s["state"] == "free" for s in e["slots"]):
+            elif e["stack"] >= 1 and not any(s["state"] in ("free", "taken") and "potion" in e["name"].lower()
+                                             for s in e["slots"]) and not any(s["state"] == "free" for s in e["slots"]):
                 log.info("gear: %s is in the bank but %s has no free slot (worn: %s)", e["name"], skill,
                          ", ".join(worn.get(skill, [])) or "nothing read")
         self.gear = worn
@@ -2345,7 +2352,11 @@ class Bot:
                     and now - self.last_open_items >= ocfg.get("every_minutes", 60) * 60):
                 self.last_open_items = now
                 self.task = "opening items in the bank"
-                for name in ocfg["names"]:  # Bird Nest -> seeds, Bait Box -> bait
+                # The configured list, the containers every release knows, and containers the bot learned
+                # from an item notice (item_catalog kind "container"): new ones open without a config edit.
+                learned = [n for n, v in self.item_catalog.items() if v.get("kind") == "container"]
+                names = list(dict.fromkeys([*ocfg["names"], *ALWAYS_OPEN, *learned]))
+                for name in names:  # Bird Nest -> seeds, Bait Box -> bait
                     opened = self.g.open_items(name)
                     if opened and not self.g.dry_run:
                         got = ", ".join(f"+{n} {item}" for n, item in getattr(self.g, "last_opened", []))
