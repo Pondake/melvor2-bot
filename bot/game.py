@@ -3014,7 +3014,10 @@ class Game:
         self.click(box, "bank search box", settle=0.4)
         # A posted "(" never arrives ("Fireflies in a Jar Firemaking)" found nothing): search the name
         # without the bracketed part and pick the right result by its title below.
-        self.win.type_text(re.sub(r"\s*\(.*?\)", "", name).strip())
+        query = re.sub(r"\s*\(.*?\)", "", name).strip()
+        if re.search(r"\bPotion\b", query):  # the tier code is often misread ("PI-A"): search without it
+            query = self._potion_base(query)
+        self.win.type_text(query)
         time.sleep(0.9)
         w = self.img.shape[1]
         tabs = self._bank_tabs()
