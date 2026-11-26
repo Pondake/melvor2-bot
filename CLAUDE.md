@@ -236,7 +236,10 @@ into bars by rule. No game files are modified.
   text right of the header (read with `read_union`; one pass gave "LOMO'.nm District").
   `Bot.best_thieving_location` reads every location every 3 h or after a Thieving level-up
   (`thief_survey` in the state file) and goes where the best NPC with at least `min_success` gives
-  the most xp per second (`ThiefTarget.rate`: "+13" xp under the portrait, "3.00s" per attempt).
+  the most xp per second (`ThiefTarget.rate` / `Bot.thief_rate`: "+13" xp under the portrait on
+  success only, "3.00s" per attempt plus `stun_seconds` (3, a guess) after a failure).
+  `min_success` was 90: only Thug (100%, +9) passed and the bot never left Lowtown; it is 50 now
+  (the user prefers xp over food; backup eating covers the failures).
   Only the NPC column is read, without scrolling (a 4th NPC is below the fold).
 - Thieving safety: a header read once gave HP unreadable and food 0 with 298 equipped; the bot then
   sat at 22/180 HP without eating and left with "out of food". Now: HP is read up to three times,

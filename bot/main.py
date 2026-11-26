@@ -1299,8 +1299,8 @@ class Bot:
                     if self.announced != f"Thieving: {name}":
                         self.event("activity", f"Thieving the {name} for herb seeds (the herb plots are empty)")
                     return True
-        self.best_thieving_location(tcfg.get("min_success", 90))
-        name = self.g.start_thieving(tcfg.get("min_success", 90))
+        self.best_thieving_location(tcfg.get("min_success", 50))
+        name = self.g.start_thieving(tcfg.get("min_success", 50))
         self.target_name = name or ""
         if name is None:
             # Not a failure that three tries can fix: move on in the rotation at once.
@@ -1333,16 +1333,26 @@ class Bot:
                 log.info("thieving: %s", "; ".join(
                     f"{loc}: " + ", ".join(f"{n} {s or 0:.0f}% +{x or '?'}" for n, s, x, _ in npcs)
                     for loc, npcs in spots.items()))
-        best = None
+        best, ranked = None, []
+        stun = self.cfg.get("thieving", {}).get("stun_seconds", 3.0)
         for loc, npcs in survey.get("spots", {}).items():
             for n, s, x, secs in npcs:
                 if s is not None and s >= min_success:
-                    rate = (x or 0) * s / 100 / (secs or 3.0)
+                    rate = self.thief_rate(s, x, secs, stun)
+                    ranked.append((rate, n))
                     if not best or rate > best[0]:
                         best = (rate, loc, n)
         if best:
-            log.info("thieving: best safe target %s in %s (%.2f xp/s)", best[2], best[1], best[0])
+            log.info("thieving: best target %s in %s (%.2f xp/s; next: %s)", best[2], best[1], best[0],
+                     ", ".join(f"{n} {r:.2f}" for r, n in sorted(ranked, reverse=True)[1:4]))
             self.g.go_thieving_location(best[1])
+
+    @staticmethod
+    def thief_rate(success: float, xp: int | None, seconds: float | None, stun: float) -> float:
+        """Expected xp per second: xp only on success, and a failure costs a stun on top of the attempt.
+        Without the stun every riskier NPC looked better; with a 90% floor only Thug (100%) was left."""
+        p = success / 100
+        return (xp or 0) * p / ((seconds or 3.0) + (1 - p) * stun)
 
     def start_hunting(self, act: dict) -> bool:
         """Hunt the best animal that works (or `target`), best first; out of traps: make some in

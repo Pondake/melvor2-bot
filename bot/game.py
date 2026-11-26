@@ -154,10 +154,14 @@ class ThiefTarget:
     xp: int | None = None       # skill xp per success ("+13" under the portrait)
     seconds: float | None = None  # time per attempt ("3.00s")
 
+    stun: float = 3.0             # seconds lost after a failed attempt (thieving.stun_seconds)
+
     @property
     def rate(self) -> float:
-        """Expected xp per second; unknown values count as poor."""
-        return (self.xp or 0) * (self.success or 0) / 100 / (self.seconds or 3.0)
+        """Expected xp per second: xp only on success, a failure costs a stun on top of the attempt.
+        Unknown values count as poor."""
+        p = (self.success or 0) / 100
+        return (self.xp or 0) * p / ((self.seconds or 3.0) + (1 - p) * self.stun)
 
 
 def is_action_button(text: str, label: str) -> bool:

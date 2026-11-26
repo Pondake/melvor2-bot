@@ -703,7 +703,7 @@ class App:
         self.v_min_success = tk.StringVar()
         spin(thief, 0, "Only with at least this much food equipped", self.v_min_food, 1, 1000)
         spin(thief, 1, "Eat when HP below (%)", self.v_eat_below, 10, 95)
-        spin(thief, 2, "Pick a target with success chance from (%)", self.v_min_success, 50, 100)
+        spin(thief, 2, "Pick a target with success chance from (%)", self.v_min_success, 30, 100)
 
         # --- Bank and buying ---
         tab = page("Bank and buying")
@@ -833,7 +833,7 @@ class App:
         self.v_min_raw.set(cfg.get("cooking", {}).get("min_raw", 10))
         self.v_min_food.set(cfg.get("thieving", {}).get("min_food", 20))
         self.v_eat_below.set(cfg.get("thieving", {}).get("eat_below", 60))
-        self.v_min_success.set(cfg.get("thieving", {}).get("min_success", 90))
+        self.v_min_success.set(cfg.get("thieving", {}).get("min_success", 50))
         self.rot_rows = []
         for a in cfg.get("rotation", []):
             lo, hi = minutes_range(a)
@@ -1003,7 +1003,7 @@ class App:
                             "min_raw": num(self.v_min_raw, "Cooking, raw", 1)},
                 "thieving": {"min_food": num(self.v_min_food, "Thieving, food", 1),
                              "eat_below": min(num(self.v_eat_below, "Thieving, HP", 10), 95),
-                             "min_success": min(num(self.v_min_success, "Thieving, success chance", 50), 100)},
+                             "min_success": min(num(self.v_min_success, "Thieving, success chance", 30), 100)},
                 "rotation": rotation,
                 "smelting": {"check_minutes": num(self.v_smelt_every, "Check smelting", 1), "rules": rules},
             }

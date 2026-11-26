@@ -103,12 +103,13 @@
   "thieving": {
     "min_food": 20,
     "eat_below": 60,
-    "min_success": 90,
+    "min_success": 50,
     "herb_seeds": {
       "location": "Farmers Market",
       "npc": "Herbalist",
       "min_success": 45
-    }
+    },
+    "stun_seconds": 3.0
   },
   "rotation": [
     {
