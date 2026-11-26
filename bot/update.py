@@ -9,6 +9,7 @@ Only in the installed release build; running from source never updates itself.
 import hashlib
 import json
 import logging
+import os
 import pathlib
 import re
 import subprocess
@@ -90,7 +91,15 @@ def apply(new_exe: pathlib.Path, start_bot: bool) -> None:
         old.rename(current)  # put the working version back
         raise
     args = [str(current), "--updated-from", VERSION] + (["--start"] if start_bot else [])
-    subprocess.Popen(args, cwd=str(current.parent), creationflags=DETACHED, close_fds=True)
+    spawn_independent(args, current.parent)
+
+
+def spawn_independent(args: list[str], cwd: pathlib.Path) -> None:
+    """Start another copy of the exe as its own program. Without PYINSTALLER_RESET_ENVIRONMENT a
+    onefile child reuses this process's unpack folder, which this process deletes when it exits:
+    0.2.1 crashed on start with "cannot import name '_imagingtk'" after updating from 0.2.0."""
+    env = {**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"}
+    subprocess.Popen(args, cwd=str(cwd), env=env, creationflags=DETACHED, close_fds=True)
 
 
 def cleanup() -> None:

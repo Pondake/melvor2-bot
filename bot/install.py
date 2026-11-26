@@ -82,7 +82,9 @@ def install() -> None:
     _register(INSTALLED_EXE)
     if autostart.enabled():
         autostart.set_enabled(True)  # point an existing autostart shortcut at the installed exe
-    subprocess.Popen([str(INSTALLED_EXE)], cwd=str(INSTALL_DIR), creationflags=DETACHED, close_fds=True)
+    from .update import spawn_independent
+
+    spawn_independent([str(INSTALLED_EXE), "--start"], INSTALL_DIR)
 
 
 def uninstall() -> None:

@@ -25,6 +25,9 @@ into bars by rule. No game files are modified.
   downloads the exe, checks SHA256SUMS.txt, and the window installs it when no fight or Thieving runs
   and the user is not playing: stop the bot, rename the running exe to `.exe.old` (allowed while it
   runs), move the new one in, start it with `--updated-from <old> [--start]`, exit.
+  Every start of another copy goes through `update.spawn_independent` (`PYINSTALLER_RESET_ENVIRONMENT=1`):
+  otherwise the onefile child reuses the parent's `_MEI` unpack folder, which the parent deletes on
+  exit (0.2.1 crashed on its first start with "cannot import name '_imagingtk'").
 - Processes started from the Claude desktop app (Bash, PowerShell) may see a private copy of
   AppData; start the bot or the exe with `Invoke-CimMethod Win32_Process Create` so files and
   shortcuts land in the real profile. Windows the exe opens can hide behind other windows: never
