@@ -327,6 +327,9 @@ into bars by rule. No game files are modified.
   session and dies when the session restarts (the bot stopped silently, the window was gone).
   Start it detached: `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments
   @{CommandLine='"<repo>\.venv\Scripts\pythonw.exe" -m bot.gui --start'; CurrentDirectory='<repo>'}`.
+  Day to day the user runs the installed exe (`%LOCALAPPDATA%\Programs\MelvorBot\MelvorBot.exe
+  --start`, data in `%LOCALAPPDATA%\MelvorBot`). To test from source, stop it first and copy its
+  `config.json` and `logs\state.json` over; never let two bots run on the game at once.
 - Top-bar buttons: click the icon, not the label (`Game._top_icon`). After the Cooking page had been
   read, a click on the word "Bank" was lost every time (the Combat food was never equipped); the
   icon above it always took the click. Same for "Shop".

@@ -125,6 +125,10 @@ class Updater:
 
     def _loop(self) -> None:
         self.check_now.wait(60)  # let the start settle
+        try:  # the previous version was still exiting when this one started and could not remove it
+            INSTALLED_EXE.with_suffix(".exe.old").unlink(missing_ok=True)
+        except OSError:
+            pass
         while True:
             ucfg = self.cfg().get("self_update", {})
             if ucfg.get("enabled", True) and not self.ready:
