@@ -12,3 +12,4 @@ FEATURE_BACKLOG.md
 config.json
 build/
 dist/
+bot/_build.py

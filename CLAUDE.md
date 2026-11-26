@@ -13,9 +13,22 @@ into bars by rule. No game files are modified.
 - Settings live in `config.json` (the GUI edits it; gitignored). `config.default.json` is the shipped
   copy, made into `config.json` when that is missing. Refresh it from `config.json` when defaults change.
 - Release: `MelvorBot.exe` (PyInstaller onefile, `tools/build.py`, entry `melvor_bot.py`). A pushed
-  tag `v*` builds it on GitHub Actions (`.github/workflows/release.yml`) and publishes the zip.
-  `bot/paths.py` puts config, logs and state next to the exe (`ROOT`) and chdirs there.
+  tag `v*` builds it on GitHub Actions (`.github/workflows/release.yml`) and publishes the exe and
+  `SHA256SUMS.txt`. The tag is the version (`bot/_build.py`, written by the build, not in git).
   `--collect-all winrt` is needed: the WinRT projections are namespace packages.
+- The exe installs itself (`bot/install.py`): started from elsewhere it asks, `--install` does it
+  quietly. Program in `%LOCALAPPDATA%\Programs\MelvorBot`, data (config, logs, state) in
+  `%LOCALAPPDATA%\MelvorBot` (`bot/paths.py`: `ROOT` is the data folder, `RESOURCES` the bundled
+  files), a Start menu shortcut and an entry in Windows' app list (`--uninstall` keeps the data).
+- Self-update (`bot/update.py`, only the installed exe): a minute after start and every
+  `self_update.every_minutes` (60) it reads the latest GitHub release (public repo, no token),
+  downloads the exe, checks SHA256SUMS.txt, and the window installs it when no fight or Thieving runs
+  and the user is not playing: stop the bot, rename the running exe to `.exe.old` (allowed while it
+  runs), move the new one in, start it with `--updated-from <old> [--start]`, exit.
+- Processes started from the Claude desktop app (Bash, PowerShell) may see a private copy of
+  AppData; start the bot or the exe with `Invoke-CimMethod Win32_Process Create` so files and
+  shortcuts land in the real profile. Windows the exe opens can hide behind other windows: never
+  click them blind on the user's screen, use `--install` for tests.
 
 ## Layout
 

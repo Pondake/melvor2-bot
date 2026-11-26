@@ -18,11 +18,12 @@ from tkinter.scrolledtext import ScrolledText
 
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
-from . import autostart
+from . import autostart, install, update
 from .game import Game
 from .main import (ROOT, STATE_PATH, SUPPORTED_SKILLS, Bot, Controls, Hotkeys, load_config, minutes_range,
                    save_config)
-from .paths import use_root
+from .paths import FROZEN, use_root
+from .version import VERSION
 from .window import GameWindow
 
 log = logging.getLogger("bot")
@@ -168,6 +169,10 @@ class App:
         self.bot: Bot | None = None
         self.thread: threading.Thread | None = None
         self.cfg = load_config()
+        self.updated_from = ""  # set by main() after a self-update; noted in the journal at start
+        self.pending_update: tuple[str, object, bool] | None = None  # (version, exe, restart the bot)
+        self.updater = update.Updater(lambda: self.cfg)
+        self.updater.start()
         self.dry_run = tk.BooleanVar(value=False)
         self.saved_note_until = 0.0
         self.scrolls: list[ScrollFrame] = []
@@ -636,6 +641,10 @@ class App:
         check(gen, 15, "Start the bot when I sign in to Windows", self.v_autostart)
         note(gen, 16, "A shortcut in your Startup folder. The bot then starts the game through Steam and loads "
                       "your character when there is only one.")
+        self.v_self_update = tk.BooleanVar(value=True)
+        check(gen, 17, "Update automatically from GitHub releases", self.v_self_update)
+        self.update_note = ttk.Label(gen, text="", style="CardNote.TLabel", wraplength=660, justify="left")
+        self.update_note.grid(row=18, column=0, columnspan=2, sticky="w", pady=(0, 6), padx=(24, 0))
 
         # --- Fishing and cooking ---
         tab = page("Fishing and cooking")
@@ -787,6 +796,7 @@ class App:
         self.v_scale.set(cfg.get("level_scaling", True))
         self.v_min_turn.set(cfg.get("min_turn_minutes", 8))
         self.v_real.set(cfg.get("real_mouse", {}).get("enabled", True))
+        self.v_self_update.set(cfg.get("self_update", {}).get("enabled", True))
         self.v_real_idle.set(cfg.get("real_mouse", {}).get("idle_minutes", 10))
         fcfg = cfg.get("fishing", {})
         self.v_auto_spot.set(fcfg.get("auto_spot", True))
@@ -954,6 +964,7 @@ class App:
                 "yield_after_leaving": num(self.v_blur_secs, "After switching window", 0),
                 "level_scaling": bool(self.v_scale.get()),
                 "min_turn_minutes": num(self.v_min_turn, "Shortest turn", 1),
+                "self_update": {**self.cfg.get("self_update", {}), "enabled": bool(self.v_self_update.get())},
                 "real_mouse": {**self.cfg.get("real_mouse", {}), "enabled": bool(self.v_real.get()),
                                "idle_minutes": num(self.v_real_idle, "Away for at least", 1)},
                 "fishing": {
@@ -1023,8 +1034,42 @@ class App:
         self.ctl.stop.clear()
         self.ctl.paused.clear()
         self.bot = Bot(Game(GameWindow(), dry_run=self.dry_run.get()), self.cfg, self.ctl)
+        if self.updated_from:
+            self.bot.event("game", f"Melvor Bot updated to {VERSION} (was {self.updated_from})")
+            self.updated_from = ""
         self.thread = threading.Thread(target=self._run_bot, args=(self.bot,), daemon=True)
         self.thread.start()
+
+    def _update_safe_now(self) -> bool:
+        """A moment the bot can be stopped for an update: no fight or Thieving (HP), nobody playing."""
+        if not self.running or not self.bot:
+            return True
+        st = self.bot.status
+        return not (st and st.skill in ("Combat", "Thieving")) and self.bot.state not in ("yielding", "starting")
+
+    def _tend_update(self) -> None:
+        """Called from poll: install a downloaded update once it is safe, then hand over and exit."""
+        if self.pending_update:
+            if self.running:
+                return  # the bot is still finishing its tick
+            version, exe, restart = self.pending_update
+            try:
+                update.apply(exe, restart)
+            except OSError as e:
+                log.warning("update to %s failed: %s", version, e)
+                self.pending_update = None
+                self.updater.ready = None
+                if restart:
+                    self.start()
+                return
+            log.info("update: handing over to %s", version)
+            self.root.destroy()
+            os._exit(0)
+        ready = self.updater.ready
+        if ready and self.v_self_update.get() and self._update_safe_now():
+            log.info("update: installing %s", ready[0])
+            self.pending_update = (ready[0], ready[1], self.running)
+            self.stop()
 
     def _run_bot(self, bot: Bot) -> None:
         log.info("bot started%s", " (DRY-RUN)" if bot.g.dry_run else "")
@@ -1079,8 +1124,10 @@ class App:
         colour, label = STATES.get(state, (GREY, state))
         self.light.itemconfigure(self.light_dot, fill=colour)
         self.state_label.configure(text=label)
-        self.root.title(f"Melvor Bot ({label})")
+        self.root.title(f"Melvor Bot {VERSION} ({label})")
         self.detail_label.configure(text=self._detail(state))
+        self.update_note.configure(text=f"Version {VERSION}. " + (self.updater.status or "Looking for updates soon."))
+        self._tend_update()
 
         running = self.running
         set_enabled(self.btn_start, not running)
@@ -1284,9 +1331,19 @@ def main() -> None:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Melvor2Bot.Gui")
     except (AttributeError, OSError):
         pass
+    argv = sys.argv[1:]
+    if FROZEN:
+        if install.handle_start(argv):  # offered or ran the install / uninstall: this copy is done
+            return
+        install.register_version()
+        update.cleanup()
     root = tk.Tk()
     app = App(root)
-    if "--start" in sys.argv[1:]:  # start the bot right away (e.g. from a shortcut)
+    if "--updated-from" in argv:
+        i = argv.index("--updated-from")
+        app.updated_from = argv[i + 1] if i + 1 < len(argv) else "?"
+        log.info("updated to %s (was %s)", VERSION, app.updated_from)
+    if "--start" in argv:  # start the bot right away (e.g. from a shortcut)
         root.after(800, app.start)
     root.mainloop()
 

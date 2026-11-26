@@ -18,10 +18,10 @@ import time
 from .game import GRIDS, SKILLS, Game, Status, Vitals, parse_amount, similar
 from .window import GameWindow, GameWindowError
 from . import desktop, steam
-from .paths import ROOT, use_root
+from .paths import RESOURCES, ROOT, use_root
 
 CONFIG_PATH = ROOT / "config.json"
-DEFAULT_CONFIG_PATH = ROOT / "config.default.json"  # shipped settings; config.json is the user's copy
+DEFAULT_CONFIG_PATH = RESOURCES / "config.default.json"  # shipped settings; config.json is the user's copy
 STATE_PATH = ROOT / "logs" / "state.json"  # what the bot last read from the game; safe to delete
 log = logging.getLogger("bot")
 
