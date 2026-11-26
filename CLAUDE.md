@@ -81,7 +81,10 @@ into bars by rule. No game files are modified.
 - Rotation `minutes` is a number, `[min, max]` (random per run) or 0 (stay). On the first tick
   the bot continues what the game is already doing if that skill is in the rotation.
 - Clicks land on a random point inside the button's text box; waits are jittered.
-- Fishing: spot xp comes from the hover tooltip of each location card (`survey_fishing`).
+- Fishing: spot xp comes from the hover tooltip of each location card (`survey_fishing`). The
+  spot dropdown in the right panel is found by its label "Select Spot:" (`_current_spot_line`); the
+  panel has two "Output" headers, and anchoring on "Output" once clicked "Special Items" for the
+  list, so no spot was ever selected.
   The bait list cannot be clicked in the background: it closes on the press without selecting
   (hover works). The bot only reads the selected bait and its count.
 - Food chain: Fishing gives raw fish, Cooking turns it into food (`survey_cooking` reads raw

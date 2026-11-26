@@ -1003,8 +1003,23 @@ class Game:
         return ranked[0]
 
     def _current_spot_line(self) -> Line | None:
-        """The spot dropdown (current spot name) in the right panel, just above the "Output" header."""
-        lines = self.read(0.68, 0.15, 1.0, 0.60)
+        """The spot dropdown (current spot name) in the right panel, right of "Select Spot:".
+
+        Anchored on that label: the panel has two "Output" headers (fish and Special Items), and when
+        OCR missed the first one the line above the second, "Special Items", was taken for the spot."""
+        lines = self.read_union(0.66, 0.15, 1.0, 0.60)
+        labels = [ln for ln in lines if norm(ln.text).startswith("select spot")]
+        if labels:
+            label = min(labels, key=lambda ln: ln.cy)
+            rest = re.sub(r"(?i)^\s*select\s*spot\s*:?\s*", "", label.text).strip()
+            if len(re.findall(r"[A-Za-z]", rest)) >= 4:  # label and value read as one line
+                part = len(label.text) - len(rest)
+                x = label.x + int(label.w * part / max(1, len(label.text)))
+                return Line(rest, x, label.y, label.x + label.w - x, label.h)
+            right = [ln for ln in lines if abs(ln.cy - label.cy) < self.px(12) and ln.x > label.x + label.w - self.px(5)
+                     and len(re.findall(r"[A-Za-z]", ln.text)) >= 4]
+            if right:
+                return min(right, key=lambda ln: ln.x)
         outputs = [ln for ln in lines if similar(ln.text, "Output") >= 0.8]
         if not outputs:
             return None
