@@ -459,7 +459,7 @@ into bars by rule. No game files are modified.
   SendInput resets the system's last-input time like the user's own input, so
   `desktop.note_own_input` remembers the bot's tick and `desktop.user_idle_seconds` (also behind
   `GameWindow.user_idle_seconds`) leaves it out; without that the bot would yield to itself.
-- Info pop-ups ("New Unlock! Quests", level up) dim the page and swallow every click until
+- Info pop-ups ("New Unlock! Quests", level up, "New Pet Located") dim the page and swallow every click until
   "Confirm" is pressed; one blocked the bot for 12 hours. `Game.dismiss_popup` closes them at the
   start of every tick and when a skill page does not open, but only with a known info title and
   never when the text mentions buying, selling or deleting. When pages keep failing, open_skill
@@ -555,9 +555,9 @@ into bars by rule. No game files are modified.
   window gave "PrintWindow failed" for five hours. The game has two launch options (normal, Vulkan):
   Steam asks which one unless "Always use this option" is ticked (done 2026-11-26, the normal one).
 - Autostart (`bot/autostart.py`): a "Melvor Bot" shortcut in the user's Startup folder runs
-  `pythonw -m bot.gui --start`; the checkbox in Settings > General creates or removes it (off by
-  default, the user's choice). The GUI sets its own AppUserModelID so the taskbar shows the "M" icon
-  instead of Python's. It is still Python (pythonw), not a frozen exe.
+  `MelvorBot.exe --start` (from source: `pythonw -m bot.gui --start`); the checkbox in Settings >
+  General creates or removes it (off by default, the user's choice). The GUI sets its own
+  AppUserModelID so the taskbar shows the "M" icon instead of Python's.
 - `save_settings` starts from the loaded config: keys without a field in the window (game_launch,
   update_check, mining, ...) were dropped on every Save before.
 - After Load the game shows "Welcome Back! You were away for ..." (offline gains) and swallows every

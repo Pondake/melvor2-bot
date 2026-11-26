@@ -3344,7 +3344,7 @@ class Game:
     # Info dialogs with only a Confirm button. They dim the page and swallow every click until
     # closed. Dialogs that spend or sell (shop, bank) are never closed here.
     POPUP_TITLES = ("New Unlock", "Level Up", "Congratulations", "Achievement", "Mastery", "Unlocked",
-                    "You can now access")
+                    "You can now access", "New Pet Located")
     POPUP_NEVER = ("Buy", "Purchase", "Sell", "Cost", "Delete", "Are you sure")
 
     def dismiss_popup(self) -> str | None:
