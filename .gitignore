@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+logs/
+
+# Backlog hoort niet in deze repo
+BACKLOG.md
+backlog.md
+docs/backlog.md
+FEATURE_BACKLOG.md
+
+# Live settings and build output stay local; config.default.json is the shipped copy
+config.json
+build/
+dist/

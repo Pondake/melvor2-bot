@@ -1,0 +1,323 @@
+{
+  "tick_seconds": 5,
+  "reselect_minutes": 10,
+  "bank_warn_free": 2,
+  "start_with_current": true,
+  "restore_window": true,
+  "yield_to_user": true,
+  "yield_seconds": 20,
+  "level_scaling": true,
+  "min_turn_minutes": 8,
+  "real_mouse": {
+    "enabled": true,
+    "idle_minutes": 10
+  },
+  "fishing": {
+    "auto_spot": true,
+    "variety": 0.25,
+    "rares_done_weight": 0.6,
+    "use_bait": true,
+    "bait_spot": "Dock Waters",
+    "cooking_aware": true,
+    "backlog_limit": 200
+  },
+  "farming": {
+    "enabled": true,
+    "check_minutes": 60,
+    "use_scarecrow": true
+  },
+  "firemaking": {
+    "min_logs": 10,
+    "keep": 200
+  },
+  "bank": {
+    "block_free": 2
+  },
+  "shop": {
+    "buy_bank": true,
+    "buy_upgrades": true,
+    "every_minutes": 60,
+    "keep_gold": 40000,
+    "categories": [
+      "Bank Slots",
+      "Firemaking",
+      "Mining",
+      "Woodcutting",
+      "Fishing",
+      "Slayer"
+    ]
+  },
+  "ranching": {
+    "enabled": true,
+    "warn_below": 60
+  },
+  "gear": {
+    "enabled": true,
+    "every_minutes": 120,
+    "equip": true
+  },
+  "sell": {
+    "enabled": true,
+    "keep_logs": 250,
+    "keep_ores": 100,
+    "keep_bars": 250,
+    "keep_food": 100,
+    "keep_best_foods": 2,
+    "share": 0.5,
+    "max_gap": 20000,
+    "duplicates": [
+      "Balaclava",
+      "Silver Topaz Amulet"
+    ],
+    "always": [
+      "Junk"
+    ],
+    "old_food": true
+  },
+  "armour": {
+    "enabled": true
+  },
+  "combat": {
+    "area": "Corrupted Farmlands",
+    "monster": "Evil Plant",
+    "stance": "balance",
+    "mode": "slayer",
+    "min_food": 20,
+    "eat_below": 50
+  },
+  "open_items": {
+    "names": [
+      "Bird Nest",
+      "Bait Box",
+      "Seaweed Clump",
+      "Eagle Nest"
+    ],
+    "every_minutes": 60
+  },
+  "cooking": {
+    "categories": [
+      "Basic Food"
+    ],
+    "min_raw": 10
+  },
+  "thieving": {
+    "min_food": 20,
+    "eat_below": 60,
+    "min_success": 90,
+    "herb_seeds": {
+      "location": "Farmers Market",
+      "npc": "Herbalist",
+      "min_success": 45
+    }
+  },
+  "rotation": [
+    {
+      "skill": "Mining",
+      "target": "smeltable",
+      "minutes": [
+        20,
+        40
+      ]
+    },
+    {
+      "skill": "Woodcutting",
+      "target": "best Tree",
+      "minutes": [
+        20,
+        40
+      ]
+    },
+    {
+      "every_hours": 4,
+      "skill": "Woodcutting",
+      "target": "best Bush",
+      "minutes": [
+        3,
+        5
+      ]
+    },
+    {
+      "only_while_stock_below": [
+        "Normal Log",
+        800
+      ],
+      "skill": "Woodcutting",
+      "target": "Normal Tree",
+      "minutes": [
+        10,
+        20
+      ]
+    },
+    {
+      "skill": "Fishing",
+      "minutes": [
+        20,
+        40
+      ]
+    },
+    {
+      "skill": "Cooking",
+      "minutes": [
+        10,
+        20
+      ]
+    },
+    {
+      "skill": "Firemaking",
+      "minutes": [
+        10,
+        20
+      ]
+    },
+    {
+      "skill": "Fletching",
+      "minutes": [
+        15,
+        25
+      ]
+    },
+    {
+      "skill": "Runecrafting",
+      "minutes": [
+        15,
+        25
+      ]
+    },
+    {
+      "skill": "Herblore",
+      "minutes": [
+        15,
+        25
+      ]
+    },
+    {
+      "skill": "Combat",
+      "minutes": [
+        10,
+        20
+      ]
+    },
+    {
+      "skill": "Woodcutting",
+      "target": "Flax Bush",
+      "minutes": [
+        5,
+        10
+      ],
+      "only_while_stock_below": [
+        "String",
+        150
+      ]
+    },
+    {
+      "skill": "Crafting",
+      "categories": [
+        "Materials & Gems"
+      ],
+      "target": "String",
+      "only": true,
+      "minutes": [
+        5,
+        10
+      ],
+      "only_while_stock_below": [
+        "String",
+        150
+      ]
+    },
+    {
+      "skill": "Hunting",
+      "target": "best",
+      "minutes": [
+        15,
+        25
+      ]
+    },
+    {
+      "skill": "Thieving",
+      "minutes": [
+        15,
+        30
+      ]
+    },
+    {
+      "skill": "Astrology",
+      "target": "least",
+      "minutes": [
+        15,
+        30
+      ]
+    },
+    {
+      "skill": "Agility",
+      "minutes": [
+        15,
+        25
+      ]
+    }
+  ],
+  "smelting": {
+    "check_minutes": 10,
+    "rules": [
+      {
+        "bar": "Iron Bar",
+        "min_ore": 200
+      },
+      {
+        "bar": "Silver Bar",
+        "min_ore": 100
+      },
+      {
+        "bar": "Copper Bar",
+        "min_ore": 100
+      },
+      {
+        "bar": "Mithril Bar",
+        "min_ore": 100
+      },
+      {
+        "bar": "Gold Bar",
+        "min_ore": 100
+      }
+    ]
+  },
+  "yield_after_leaving": 3,
+  "hunting": {
+    "trap": "Basic Snare",
+    "traps_goal": 40,
+    "trap_seconds": 2.0
+  },
+  "fireflies": {
+    "enabled": true,
+    "skills": [
+      "Farming",
+      "Ranching",
+      "Firemaking",
+      "Combat"
+    ],
+    "every_hours": 4
+  },
+  "herblore": {
+    "vial_packs": 2
+  },
+  "agility": {
+    "min_success": 100
+  },
+  "money": {
+    "steer": true,
+    "boost": 1.5,
+    "cut": 0.7
+  },
+  "mining": {
+    "coal_goal": 400
+  },
+  "update_check": {
+    "enabled": true,
+    "every_minutes": 60
+  },
+  "game_launch": {
+    "enabled": true,
+    "retry_minutes": 5,
+    "restart_hung_minutes": 20
+  }
+}
