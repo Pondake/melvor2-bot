@@ -2616,12 +2616,19 @@ class Game:
         The gained amount is kept in `last_drop_plus`."""
         name = count = None
         self.last_drop_plus = None
-        for ln in self.read(0.88, 0.905, 1.0, 0.95):
+        # Wide enough for long names: the notice grows to the left. OCR can also split one notice
+        # line into pieces ("+102 Death" and "Rune", "+2 Penril" and "Herb Seed"), so the pieces on
+        # the row of the "+N" are joined left to right before the name is taken.
+        lines = self.read(0.78, 0.895, 1.0, 0.95)
+        for ln in lines:
             got = re.search(r"\+\s*(\d+)\s+([A-Za-z][A-Za-z' -]{2,})", ln.text)
-            bank = re.search(r"([\d,.]+)\s*in\s*Ban", ln.text)
             if got and name is None:
-                name = got.group(2).strip(" -'")
+                row = sorted((o for o in lines if abs(o.cy - ln.cy) < self.px(8) and o.x >= ln.x), key=lambda o: o.x)
+                joined = re.search(r"\+\s*(\d+)\s+([A-Za-z][A-Za-z0-9' -]{2,})", " ".join(o.text for o in row)) or got
+                name = re.sub(r"\s+", " ", joined.group(2)).strip(" -'")
                 self.last_drop_plus = int(got.group(1))
+        for ln in lines:
+            bank = re.search(r"([\d,.]+)\s*in\s*Ban", ln.text)
             if bank and count is None:
                 digits = re.sub(r"[,.]", "", bank.group(1))
                 count = int(digits) if digits.isdigit() else None
@@ -3463,7 +3470,18 @@ class Game:
         try:
             panel = self._bank_select(name)
             if not panel:
-                return None
+                # A cut name from the item notice ("Death" for Death Rune): when exactly one result
+                # starts with it, that is the item. Two ("Penril" -> Herb, Herb Seed) stay unknown.
+                titles = {t.split(" / ")[-1].strip() for t in getattr(self, "bank_seen", [])}
+                longer = [t for t in titles if len(t) > len(name) and norm(t).startswith(norm(name))]
+                if len(longer) != 1:
+                    return None
+                log.info("bank: %s is %s (the notice was cut)", name, longer[0])
+                name = longer[0]
+                self._clear_bank_search()
+                panel = self._bank_select(name)
+                if not panel:
+                    return None
             lines = sorted((ln for ln in panel if ln.cy < self.img.shape[0] * 0.62), key=lambda ln: (ln.cy // 8, ln.x))
             stop = next((ln.cy for ln in lines if re.search(r"Found in|Stack Value|Sell Item", ln.text)), None)
             body = [ln.text.strip() for ln in lines if stop is None or ln.cy < stop]
@@ -3475,6 +3493,8 @@ class Game:
             kind = next((k for k, pattern in self.ITEM_KINDS if re.search(pattern, text, re.I)), None)
             if kind is None and re.search(r"\bSeeds?$", name):
                 kind = "seed"
+            if re.search(r"\bPotion\b", name):  # "Consumable: Yes" made potions food; they go in a Toolbelt slot
+                kind = "gear"
             return {"name": name, "kind": kind or "other", "text": text[:220]}
         finally:
             self._clear_bank_search()

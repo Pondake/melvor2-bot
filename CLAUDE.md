@@ -265,6 +265,10 @@ into bars by rule. No game files are modified.
   says "No Compost selected" or "Not enough", `choose_compost` tries the tiles in order
   (Fertiliser first, +30% crop; it comes from Ranching) until the warning is gone. Select sits
   `COMPOST_SELECT_DX` right of "Product:", tiles at `COMPOST_GRID`.
+- Item notice names were cut ("Death", "Dea Rune", "Penril", "Normal"): OCR splits a long notice line
+  into pieces. `read_drop` reads from 0.78 of the width and joins the pieces on the "+N" row. When a
+  learned name is still not found, `item_info` takes the one bank result whose title starts with it.
+  A name with "Potion" is kind gear (their "Consumable: Yes" made them food).
 - New items: an item notice whose "N in Bank" is no more than the "+N" just gained is the first of
   its kind. `Bot.track_drop` queues it (`learn_queue`), and on the next errand round `learn_items`
   reads its bank panel (`Game.item_info`: description and a kind from `ITEM_KINDS`: container,

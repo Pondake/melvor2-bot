@@ -401,13 +401,16 @@ class Bot:
             if not info:
                 log.info("new item %s: not found in the bank", name)
                 continue
+            name = info["name"]  # the full name when the notice was cut
+            if self.known_item(name):
+                continue
             self.item_catalog[name] = {"kind": info["kind"], "text": info["text"], "t": time.time()}
             use = {"compost": "the farm uses it as compost before planting",
                    "bait": "fishing uses it when it is the biggest bait stack",
                    "food": "it counts as food from the next food check",
                    "gear": "the next gear check looks at it",
                    "seed": "the crop choice can plant it",
-                   "container": "add it to Settings > Bank and buying > open items to have it opened"}.get(info["kind"], "nothing uses it yet")
+                   "container": "it is opened with the nests from now on"}.get(info["kind"], "nothing uses it yet")
             self.event("learn", f"New item {name} ({info['kind']}): {info['text'] or 'no description read'} - {use}")
             if info["kind"] == "food":
                 self.food_read_at = 0.0
