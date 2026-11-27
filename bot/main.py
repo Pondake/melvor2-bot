@@ -265,6 +265,7 @@ class Bot:
         self.thief_survey = data.get("thief_survey", {})
         self.auto_eat_short = data.get("auto_eat_short", {})
         self.too_hard = data.get("too_hard", {})
+        self.drop_misread_too_hard()
         self.item_catalog = data.get("item_catalog", {})
         self.weapon = data.get("weapon", {})
         self.hunt_survey = data.get("hunt_survey", {})
@@ -1077,6 +1078,14 @@ class Bot:
         self.target_name = monster
         return True
 
+    def drop_misread_too_hard(self) -> None:
+        """Forget "too hard" marks that came from a misread food count (no fight eats 8000 pieces)."""
+        for name, entry in list(self.too_hard.items()):
+            m = re.search(r"ate (\d+) food", entry.get("why", ""))
+            if m and int(m.group(1)) > 500:
+                log.info("combat: %s was marked too hard by a misread (%s) - forgotten", name, entry["why"])
+                del self.too_hard[name]
+
     def too_hard_now(self, monster: str) -> str | None:
         """Why `monster` is skipped for now (it ate the food too fast), or None."""
         hours = self.cfg.get("combat", {}).get("too_hard_hours", 24)
@@ -1093,9 +1102,19 @@ class Bot:
         fl = getattr(self, "fight_log", None)
         if not fl or v.food_count is None:
             return None
-        if v.food_count > fl["food"]:  # more food was equipped: count from here
-            fl["food"], fl["t"] = v.food_count, time.time()
+        if v.food_count > fl["food"]:
+            # More food was equipped: count from here, but only when read twice. A single misread
+            # ("8000") became the base and the next good read looked like 8000 pieces eaten.
+            if fl.get("up") == v.food_count:
+                fl["food"], fl["t"], fl["up"] = v.food_count, time.time(), None
+            else:
+                fl["up"] = v.food_count
+            return None
+        fl["up"] = None
         used = fl["food"] - v.food_count
+        if used > max(200, fl["food"] // 2) and time.time() - fl["t"] < 600:
+            fl["food"], fl["t"] = v.food_count, time.time()  # far too much for a few minutes: a misread
+            return None
         minutes = (time.time() - fl["t"]) / 60
         rate = used / minutes if minutes >= 3 else 0.0
         if rate > ccfg.get("max_food_per_min", 2.0):

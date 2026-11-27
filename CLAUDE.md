@@ -595,6 +595,10 @@ into bars by rule. No game files are modified.
   too. `food_budget_spent` now leaves a fight above `max_food_per_min` (2, after 3 min) or at
   `food_reserve` (5) left, and `too_hard` keeps that monster out for `too_hard_hours` (24): the
   Slayer task then falls back to the configured monster, and the in-fight "jump to the task" skips it.
+- The equipped-food count is read on every look during a fight: a jump up (new food equipped) counts
+  only when read twice, and an impossible drop (over 200 or half the stack within 10 min) restarts the
+  count. One misread "8000" made "ate 8000 food in 9 min" and Evil Plant, the fallback monster, was
+  skipped for a day; `drop_misread_too_hard` forgets such marks when the state is loaded.
 - Combat area list keeps its scroll position: after a Slayer area further down the fallback
   "Corrupted Farmlands" was out of view and combat failed three times in a row. `start_fight`
   now scrolls the list up and down before giving up and logs what it saw.
