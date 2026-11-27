@@ -2263,9 +2263,11 @@ class Bot:
             self.last_stuck_warn = now
         if now < self.quiet_until:
             return
-        if not self.smelting and st.skill == "Smithing" and "Smithing" not in [a["skill"] for a in self.rotation]:
+        smelt_running = st.skill == "Smithing" and (not st.detail or re.search(r"\bBar\b|Molten Glass", st.detail))
+        if not self.smelting and smelt_running and "Smithing" not in [a["skill"] for a in self.rotation]:
             # Smelting that runs when the bot starts (its own from before a restart, or the user's)
-            # is left to finish, like the bot's own; then the rotation carries on.
+            # is left to finish, like the bot's own; then the rotation carries on. Only bars: smithed
+            # gear (Steel Boots) left running would use every bar and hold the rotation for hours.
             log.info("smelting %s is running: letting it finish", st.detail or "bars")
             self.smelting = True
         if self.smelting:

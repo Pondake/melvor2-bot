@@ -503,7 +503,10 @@ into bars by rule. No game files are modified.
 - Smelting prefers the best bar an ore makes (`BAR_ORDER`): a rule for Iron Bar first tries Steel
   Bar (Iron Ore + Coal) and falls back when it does not start. Recipe card counts are read soft
   first (`_count_below`): the hard-mask reads made "93 / 1" into "9331" and smelted far too early.
-  A smelt that runs when the bot starts is left to finish.
+  A smelt that runs when the bot starts is left to finish, but only a bar or Molten Glass: once
+  `smith_one` did not see its Stop button (UI scale changed to 0.81), Steel Boots went on using every
+  Steel Bar and the "let it finish" wait held the rotation for an hour. `smith_one` now looks wider
+  and checks the status bar until Smithing has stopped.
 - Bank item titles can start with the icon read as a letter ("o Trout 66"); `Game.item_title`
   drops it. Without that "Trout" was never found and Thieving could not equip it.
 - Slayer progress "23 / 27" often comes back as "23127": `slayer_task` reads that spot again with

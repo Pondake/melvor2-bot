@@ -3305,10 +3305,18 @@ class Game:
         if not self.create_recipe("Smithing", r) or self.dry_run:
             return self.dry_run
         time.sleep(4.0)
-        stop = find(self.read_union(0.74, 0.70, 1.0, 0.99), "Stop", 0.85)
-        if stop:
-            self.click(stop, f"stop smithing after one {r.name}", action=True)
-        log.info("smithing: made %s", r.name)
+        # Stop must be pressed, or Create runs until the bars are gone: an unseen Stop once smithed
+        # Steel Boots from every Steel Bar for an hour. Look wider and check the status bar after.
+        for attempt in range(3):
+            stop = find(self.read_union(0.60, 0.55, 1.0, 0.99), "Stop", 0.85)
+            if stop:
+                self.click(stop, f"stop smithing after one {r.name}", action=True)
+            st = self.status()
+            if st.skill != "Smithing":
+                log.info("smithing: made %s", r.name)
+                return True
+            time.sleep(1.0)
+        log.warning("smithing: could not stop %s - it keeps using bars", r.name)
         return True
 
     TOOLBELT_WORDS = ("Utility", "Helmet", "Gloves", "Boots", "Cape", "Amulet", "Ring", "Potion")  # potions sit in a Toolbelt slot
