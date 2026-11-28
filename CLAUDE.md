@@ -655,6 +655,21 @@ into bars by rule. No game files are modified.
   `make_count`. Done live 2026-11-28: Stone -> 30 Stone Arrowtips (Smithing > Stone Gear) -> 24 Stone
   Arrows (Fletching > Arrows) -> Give. Steps without items (Slay 3 Archery Target with Ranged) only
   go to the journal.
+- Quest count: Give, the item icon (width varies), a coloured "have" (red too few, green enough) and a
+  white "/ need". The rightmost white run is "/ need" (a sword blade is white too), the coloured
+  digits sit within ~7 px left of it, the icon ~10 px further: the colour decides Give (`enough`).
+  The hover for the name happens once per quest step (`check_quest` keeps it), only with the real
+  mouse allowed. Finished: "Quest Complete!" + "Claim Rewards" is pressed; "Rewards already claimed"
+  -> the top open quest in the list is selected and "Start Quest" pressed.
+- Quest fights ("Slay 0 / 3 Archery Target using Ranged Combat Style"): `Bot.quest_fight` sets the
+  loadout (`Game.set_loadout`: header above Equipment, posted clicks; "Melee"/"Ranged"), puts arrows
+  on (`ensure_ammo` -> `equip_ammo`: bank panel "Equip To: Ammo" after All), fights in the popup's
+  "Quests" tab (an area per quest, "Act 1 - Pointy" / "Preparation" wrapped), waits
+  `quests.fight_minutes` (4), runs, and restores the loadout. `start_fight` now always clicks its tab
+  first: the popup reopens on the last tab, and after Quests "Corrupted Farmlands" was not in the list.
+  With the Ranged loadout the melee stance logic is skipped.
+- Bank tabs are placed by position, never by number: the user reordered them ("Tab 1, Tab 3, Tab 2")
+  and the number-based spacing put "Tab 1" in the sidebar, so a cell click opened Combat.
 - Recipe categories are found with `read_union`: a single read missed "Arrows" at UI scale 0.81, so
   Fletching never saw an arrow recipe.
 - Tested live: Mining, Woodcutting (Cut), Astrology (Select + Study), Fishing spot choice,

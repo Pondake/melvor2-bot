@@ -400,8 +400,19 @@ class Bot:
     def check_quest(self) -> None:
         """Follow the quest in progress: note its step in the journal, press Give once enough items are
         there, and otherwise make the item (and what goes into it) on the recipe pages."""
-        q = self.g.read_quest(hover=True)
+        # The count is read without the mouse; the item's name needs a real-mouse hover, so that is
+        # done once per quest step (the name is kept) and only when the step has an unknown item.
+        q = self.g.read_quest(hover=False)
         if not q:
+            return
+        known = self.quest.get("quest") == q["quest"] and self.quest.get("step") == q["step"] and self.quest.get("item")
+        if q["need"] and not known:
+            q = self.g.read_quest(hover=True) or q
+        if q.get("claimed") or q.get("started"):
+            self.event("game", f"Quest {q['quest']} " + ("complete: rewards claimed" if q.get("claimed") else "started"))
+            self.quest = {"quest": q["quest"], "step": q["step"]}
+            self.save_state()
+            self.quest_checked = 0.0  # the next step (or quest) on the next round
             return
         old = self.quest
         same_step = old.get("quest") == q["quest"] and old.get("step") == q["step"]
@@ -412,9 +423,13 @@ class Bot:
             self.event("game", f"Quest {q['quest']}, step {q['step']}{need}" + (f" ({q['text']})" if q["text"] else ""))
         self.quest = {k: q[k] for k in ("quest", "step", "item", "have", "need")}
         self.save_state()
+        fight = re.search(r"Slay\s+([\dOo]+)\s*/\s*([\dOo]+)\s+(.+?)\s+using\s+(\w+)\s+Combat", q["text"] or "", re.I)
+        if fight and self.current["skill"] not in ("Thieving", "Combat"):
+            self.quest_fight(q["quest"], fight.group(3).strip(), fight.group(4).capitalize())
+            return
         if not q["need"]:
-            return  # a step without items (talk, fight, reach a level): the user's part
-        if q["have"] >= q["need"]:
+            return  # a step without items (talk, reach a level): the user's part
+        if q.get("enough", q["have"] >= q["need"]):  # the colour of "have" decides
             if self.g.give_quest_items(q):
                 self.event("game", f"Quest {q['quest']}: gave {q['need']} {q['item'] or 'items'}")
                 self.quest_checked = 0.0  # look at the next step on the next round
@@ -425,6 +440,49 @@ class Bot:
             return
         made = self.make_item(q["item"], q["need"] - q["have"])
         log.info("quests: %s %s for %s", "made" if made else "could not make", q["item"], q["quest"])
+
+    def quest_fight(self, quest: str, monster: str, style: str) -> None:
+        """A step like "Slay 0 / 3 Archery Target using Ranged Combat Style": switch to that loadout,
+        fight the monster in the popup's Quests tab (an area per quest), wait a few minutes, then put
+        the loadout back. The quest is read again on the next round."""
+        if not self.g.open_combat():
+            return
+        before = self.g.loadout()
+        if not self.g.set_loadout(style):
+            self.event("warn", f"Quest {quest}: no {style} loadout to fight {monster} with")
+            return
+        if similar(style, "Ranged") >= 0.9:
+            self.ensure_ammo(force=True)
+            self.g.open_combat()
+        if not self.g.start_fight(quest, monster, category="Quests"):
+            log.info("quests: %s not found under Quests", monster)
+        else:
+            self.event("game", f"Quest {quest}: fighting {monster} with the {style} loadout")
+            end = time.time() + self.cfg.get("quests", {}).get("fight_minutes", 4) * 60
+            while time.time() < end and not self.ctl.stop.is_set():
+                self.ctl.stop.wait(5)
+                self.tend_fight()  # eats when needed; quest monsters are weak
+            self.g.run_from_combat()
+        if before and similar(before, style) < 0.9:
+            self.g.open_combat()
+            self.g.set_loadout(before)
+        self.quest_checked = 0.0  # look at the quest again on the next round
+
+    def ensure_ammo(self, force: bool = False) -> None:
+        """Ranged loadout: keep arrows on. The bank's stack goes on with All; with too few, more are
+        made first (`ammo.arrows`, default Stone Arrows, up to `ammo.goal`). At most every 30 min."""
+        acfg = self.cfg.get("ammo", {})
+        if not force and time.time() - getattr(self, "ammo_checked", 0.0) < 1800:
+            return
+        self.ammo_checked = time.time()
+        name, goal = acfg.get("arrows", "Stone Arrows"), acfg.get("goal", 200)
+        known = self.known_count(name)
+        if known is not None and known < acfg.get("min", 50):
+            if self.make_item(name, goal):
+                self.note_stock(name, known + goal)
+        if self.g.equip_ammo(name):
+            self.note_stock(name, None)  # the bank's count is unknown now (no notice after equipping)
+            self.event("gear", f"{name} put on the Ranged loadout (whole stack)")
 
     def recipe_location(self, item: str, refresh_ok: bool = True) -> tuple[str, str] | None:
         """(skill, category) of the recipe that makes `item`, from an index of every recipe page.
@@ -1159,7 +1217,12 @@ class Bot:
         if fighting and similar(st.detail, monster) >= 0.8:
             log.info("Combat: already fighting %s", monster)
         else:
-            stance = self.choose_stance(ccfg.get("stance", "auto"))
+            # Melee stances only fit the Melee loadout (Ranged has Accurate / Long-Range): leave others alone.
+            loadout = self.g.loadout() or "Melee"
+            stance = self.choose_stance(ccfg.get("stance", "auto")) if similar(loadout, "Melee") >= 0.9 else None
+            if loadout and similar(loadout, "Ranged") >= 0.9:
+                self.ensure_ammo()
+                self.g.open_combat()
             if stance and similar(self.g.current_stance() or "", stance) < 0.9:
                 if self.g.set_stance(stance):
                     self.event("activity", f"Combat stance {stance} (trains the lowest melee skill)")

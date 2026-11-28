@@ -2548,22 +2548,53 @@ class Game:
         self.click(btn, f"stance {name}", settle=0.4, action=True)
         return True
 
-    def start_fight(self, area: str, monster: str) -> bool:
-        """Pick an area and a monster and press Fight (Combat page open)."""
+    def loadout(self) -> str | None:
+        """Combat page: name of the selected loadout ("Melee", "Ranged"), the header above Equipment."""
+        lines = self.read_union(0.10, 0.17, 0.24, 0.24)
+        head = min((ln for ln in lines if re.fullmatch(r"[A-Za-z ]{3,}", ln.text.strip())
+                    and "equipment" not in ln.text.lower()), key=lambda ln: ln.cy, default=None)
+        return head.text.strip() if head else None
+
+    def set_loadout(self, name: str) -> bool:
+        """Combat page: choose a loadout from the header's list (posted clicks work). Verified after."""
+        lines = self.read_union(0.10, 0.17, 0.24, 0.24)
+        head = min((ln for ln in lines if re.fullmatch(r"[A-Za-z ]{3,}", ln.text.strip())
+                    and "equipment" not in ln.text.lower()), key=lambda ln: ln.cy, default=None)
+        if not head:
+            log.warning("combat: loadout header not found")
+            return False
+        if similar(head.text.strip(), name) >= 0.9:
+            return True
+        self.click(head, "open the loadout list", settle=0.6)
+        opts = [ln for ln in self.read_union(0.10, 0.17, 0.26, 0.45)
+                if ln.cy > head.cy + self.px(15) and similar(ln.text.strip(), name) >= 0.9]
+        if not opts:
+            log.warning("combat: no loadout %s in the list", name)
+            self.click(head, "close the loadout list", settle=0.4)
+            return False
+        self.click(opts[0], f"loadout {name}", settle=0.8)
+        ok = similar(self.loadout() or "", name) >= 0.9
+        log.info("combat: loadout %s %s", name, "selected" if ok else "did not stick")
+        return ok
+
+    def start_fight(self, area: str, monster: str, category: str = "Combat Areas") -> bool:
+        """Pick an area and a monster and press Fight (Combat page open). `category` is the popup's
+        tab: "Combat Areas", or "Quests" (an area per quest, "Act 1 - Pointy Preparation")."""
         low = self.read_union(0.45, 0.84, 0.80, 0.99)
-        opener = (find(low, "No Area Selected", 0.7) or find(low, area, 0.8) or find(low, "Combat Areas", 0.8))
+        opener = (find(low, "No Area Selected", 0.7) or find(low, area, 0.8) or find(low, "Combat Areas", 0.8)
+                  or next((ln for ln in low if re.search(r"Act\s*\d|Quest", ln.text)), None))
         if not opener:
             log.warning("combat: area button not found")
             return False
         self.click(opener, "open the area list")
-        # With no area chosen the popup opens on "No Category selected": pick Combat Areas first.
+        # The popup opens on the tab it was left on (or "No Category selected"): pick the tab first.
+        # Since quests came, it opened on Quests and "Corrupted Farmlands" was not in the list.
         top = self.read_union(0.05, 0.08, 0.97, 0.96)
-        if find(top, "No Category selected.", 0.7):
-            cat = find(top, "Combat Areas", 0.85)
-            if cat:
-                self.click(cat, "category Combat Areas", settle=0.6)
-            else:
-                log.warning("combat: no Combat Areas category in the popup")
+        tab = find([ln for ln in top if ln.cy < self.img.shape[0] * 0.25], category, 0.85)
+        if tab:
+            self.click(tab, f"category {category}", settle=0.6)
+        elif find(top, "No Category selected.", 0.7):
+            log.warning("combat: no %s category in the popup", category)
         # The list keeps its scroll position: after a Slayer area further down, the first area was
         # out of view ("Corrupted Farmlands not in the list" three times in a row). Scroll both ways.
         h, w = self.img.shape[:2]
@@ -2575,6 +2606,9 @@ class Game:
                 time.sleep(0.5)
             seen = self.read_union(0.10, 0.22, 0.34, 0.96)
             place = find(seen, area, 0.85)
+            if not place and category == "Quests":  # "Act 1 - Pointy" / "Preparation": wrapped over two lines
+                key = norm(area).split()[0] if norm(area) else ""
+                place = next((ln for ln in seen if key and key in norm(ln.text)), None)
             if place:
                 break
         if not place:
@@ -2954,6 +2988,14 @@ class Game:
         hit = find(lines, name, 0.85)
         if hit:
             return hit
+        # The labels sit evenly spaced (Bank, Shop, Quests, Completion): between the two neighbours is
+        # exact, the letter position inside a merged line once landed on Shop.
+        neighbours = {"Quests": ("Shop", "Completion")}.get(name)
+        if neighbours:
+            a, b = (find([ln for ln in lines if len(ln.text) < 14], n, 0.85) for n in neighbours)
+            if a and b:
+                cx = (a.cx + b.cx) // 2
+                return Line(name, cx - a.w // 2, a.y, a.w, a.h)
         for ln in lines:
             i = ln.text.find(name)
             if i >= 0 and len(ln.text) > len(name):
@@ -2979,6 +3021,35 @@ class Game:
         if not tasks or not syn:
             log.info("quests: no quest details (none started?)")
             return None
+        # A finished quest stays on the page ("Rewards already claimed"): go to the next one in the list
+        # (the top entry that is not a "Complete Act 1 - ..." requirement) and start it.
+        if find(lines, "Rewards already claimed", 0.85):
+            left = self.read_union(0.20, 0.08, 0.37, 0.95)
+            entries = sorted((ln for ln in left if ln.h >= self.px(18) and re.search(r"[A-Za-z]{4,}", ln.text)
+                              and not re.match(r"\s*(Complete|Act\s*\d|Quest\b|Show)", ln.text, re.I)),
+                             key=lambda ln: ln.cy)
+            if not entries:
+                log.info("quests: no next quest in the list")
+                return None
+            self.click(entries[0], f"select quest {entries[0].text.strip()}", settle=1.0)
+            lines = self.read_union(0.33, 0.06, 0.64, 0.97)
+            syn = find(lines, "Synopsis", 0.85) or syn
+        start = find(lines, "Start Quest", 0.85)
+        if start and any("not active" in ln.text.lower() for ln in lines):
+            title = max((ln for ln in lines if ln.cy < syn.cy and not re.match(r"\s*Act\s*\d", ln.text)
+                         and "quest details" not in ln.text.lower()), key=lambda ln: ln.h, default=None)
+            name = title.text.strip() if title else "?"
+            self.click(start, f"start quest {name}", action=True)
+            return {"quest": name, "step": "started", "text": "", "item": None, "have": None, "need": None,
+                    "give": None, "started": True}
+        claim = find(lines, "Claim Rewards", 0.85)
+        if claim and find(lines, "Quest Complete!", 0.8):
+            title = max((ln for ln in lines if ln.cy < syn.cy and not re.match(r"\s*Act\s*\d", ln.text)
+                         and "quest details" not in ln.text.lower()), key=lambda ln: ln.h, default=None)
+            name = title.text.strip() if title else "?"
+            self.click(claim, f"claim the rewards of {name}", action=True)
+            return {"quest": name, "step": "done", "text": "", "item": None, "have": None, "need": None,
+                    "give": None, "claimed": True}
         title = max((ln for ln in lines if ln.cy < syn.cy and not re.match(r"\s*Act\s*\d", ln.text)
                      and "quest details" not in ln.text.lower() and re.search(r"[A-Za-z]{3,}", ln.text)),
                     key=lambda ln: ln.h, default=None)
@@ -3005,18 +3076,45 @@ class Game:
         img = self.img
         right = anchor.x + anchor.w
         y0, y1 = anchor.y - self.px(8), anchor.y + anchor.h + self.px(8)
-        # Icon right after the button, then the count: skip the icon so its colours are not read as "have".
-        for skip in (40, 30, 50):
-            have, need = have_need(img[y0:y1, right + self.px(skip):right + self.px(170)])
+        # Give, the item icon, a coloured "have" (red: too few, green: enough) and a white "/ need".
+        # Icons differ in width (a fixed skip read the sword's edge: "60 / 3" for 0 / 3): find the white
+        # slash first, then the coloured digits right before it; the icon lies between Give and those.
+        strip = img[y0:y1, right:right + self.px(190)].astype(int)
+        lo, hi = strip.min(axis=2), strip.max(axis=2)
+        white = ((lo > 150) & (hi - lo < 60)).any(axis=0)
+        coloured = ((hi > 120) & (hi - lo > 70)).any(axis=0)
+        cols = np.where(white)[0]
+        # "/ need" is the rightmost white text (a sword blade in the icon is white too): its first column.
+        slash = None
+        if len(cols):
+            slash = int(cols[-1])
+            for c in cols[::-1]:
+                if slash - c > self.px(8):
+                    break
+                slash = int(c)
+        start, gap = slash, 0
+        if slash is not None:
+            x = slash - 1
+            while x > self.px(10) and gap <= self.px(9):  # digits to slash ~7 px, icon to digits ~10 px
+                if coloured[x]:
+                    start, gap = x, 0
+                else:
+                    gap += 1
+                x -= 1
+            have, need = have_need(strip[:, max(start - 2, 0):].astype(np.uint8))
             if need:
+                part = strip[:, start:slash]
+                red = int(((part[..., 0] > 150) & (part[..., 0] - part[..., 1] > 70)).sum())
+                green = int(((part[..., 1] > 150) & (part[..., 1] - part[..., 0] > 50)).sum())
                 out["have"], out["need"] = have or 0, need
-                break
+                out["enough"] = green > red  # the colour decides; the digits are only for the journal
         out["give"] = Line("Give", right - self.px(40), anchor.y, self.px(36), anchor.h)
+        icon_x = right + (start // 2 if start else self.px(30))
         # The item's name is only in the icon's tooltip, which shows for the real mouse only (a posted
         # hover shows nothing, as with the crop picker): read it while the user is away.
         if hover and self.real_ok and not self.dry_run and self.real_ok():
             before = {ln.text for ln in lines}
-            icon_x, icon_y = right + self.px(42), anchor.cy  # +22 was still the edge of the Give button
+            icon_y = anchor.cy  # icon_x: halfway between Give and the count (a fixed offset missed the sword)
             try:
                 with self.win.real_mouse() as m:
                     m.hover(icon_x, icon_y, settle=1.2)
@@ -3094,13 +3192,25 @@ class Game:
             m = re.fullmatch(r"Tab\s*(\d+)", ln.text.strip())
             if m:
                 seen[int(m.group(1))] = ln
-        if len(seen) < 2:
-            return list(seen.values())
-        lo, hi = min(seen), max(seen)
-        step = (seen[hi].cx - seen[lo].cx) / (hi - lo)
-        ref = seen[lo]
-        return [seen.get(n) or Line(f"Tab {n}", int(ref.x + (n - lo) * step), ref.y, ref.w, ref.h)
-                for n in range(1, hi + 1)]
+        # Left to right by position, not by number: the user can reorder the tabs ("Tab 1, Tab 3,
+        # Tab 2 ...") and placing them by number put "Tab 1" in the sidebar (a click opened Combat).
+        found = sorted(seen.values(), key=lambda ln: ln.cx)
+        if len(found) < 2:
+            return found
+        gaps = sorted(b.cx - a.cx for a, b in zip(found, found[1:]))
+        step = gaps[0] if gaps[0] > 0 else gaps[len(gaps) // 2]  # the smallest gap is one tab
+        out = [found[0]]
+        left = self.img.shape[1] * 0.10 + self.px(20)
+        while out[0].cx - step >= left:  # the leftmost tab(s) OCR missed ("Tab 1")
+            first = out[0]
+            out.insert(0, Line("Tab ?", int(first.x - step), first.y, first.w, first.h))
+        for ln in found[1:]:
+            missing = round((ln.cx - out[-1].cx) / step) - 1
+            for k in range(1, max(0, missing) + 1):  # a tab OCR missed between two read ones
+                prev = out[-1]
+                out.append(Line("Tab ?", int(prev.x + step), prev.y, prev.w, prev.h))
+            out.append(ln)
+        return out
 
     @staticmethod
     def item_title(text: str) -> str:
@@ -3433,6 +3543,33 @@ class Game:
             title = next((ln for ln in again if ln.cy < self.px(200) and ln.h >= self.px(15)
                           and similar(self.item_title(ln.text), name) >= 0.9), None)
             return title is None
+        finally:
+            self._clear_bank_search()
+
+    def equip_ammo(self, name: str) -> int:
+        """Bank: put the whole stack of `name` (arrows) on the selected loadout: All, then Equip To.
+        Returns the pieces in the bank that were put on (0 when there were none or no Equip line)."""
+        if not self._open_bank():
+            return 0
+        try:
+            panel = self._bank_select(name)
+            if not panel:
+                return 0
+            sell, head = find(panel, "Sell Item", 0.7), find(panel, "Equip Item", 0.8)
+            if not head:
+                log.info("bank: %s has no Equip block", name)
+                return 0
+            block = [ln for ln in panel if head.cy < ln.cy and (not sell or ln.cy < sell.cy - self.px(10))]
+            equip = next((ln for ln in block if re.search(r"Equip To\W", ln.text, re.I)), None)
+            if not equip:
+                return 0
+            # "Sell 1 for 12 GP" is the chosen sell amount, not the stack: the count is not read here.
+            every = [ln for ln in block if ln.cy < equip.cy and re.search(r"\bAll\s*$", ln.text)]
+            if every:  # "All but 1 | All": the right end is All
+                ln = min(every, key=lambda b: b.cy)
+                self.click(Line("All", ln.x + ln.w - self.px(26), ln.y, self.px(22), ln.h), f"all {name}", settle=0.5)
+            self.click(equip, f"equip {name} ({equip.text.strip()})", action=True)
+            return 1
         finally:
             self._clear_bank_search()
 
