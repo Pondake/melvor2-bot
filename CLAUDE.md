@@ -668,6 +668,22 @@ into bars by rule. No game files are modified.
   `quests.fight_minutes` (4), runs, and restores the loadout. `start_fight` now always clicks its tab
   first: the popup reopens on the last tab, and after Quests "Corrupted Farmlands" was not in the list.
   With the Ranged loadout the melee stance logic is skipped.
+- Goals (`goals` in config, e.g. "The Grain Mill": Farming, materials Oak Log, Stone, Molten Glass in
+  the card's chip order): `Bot.check_goals` (every `goals_minutes`, 30) reads the card's chips via
+  `shop_item`; what is short becomes `goal_needs`, which turns the Woodcutting target into "<Log>
+  Tree" and the Mining target into the ore/Stone, Molten Glass is smelted from bought sand
+  (`supply_glass`; how much sand one buy brings follows the Shop's Buy Quantity, the user's
+  setting), the materials are never sold, and the item is bought once every chip is covered.
+  `shop_item` scrolls in steps of 3 (5 skipped The Grain Mill), picks the card title with a "Costs"
+  line under it (the section header has the same name), centres the chip crop on "Costs &
+  Requirements" (titles are left-aligned), and a chip whose "/ need" was not read borrows the need
+  the others agree on. "Jump to:" reads as "p to:" at UI scale 0.81.
+- Agility picks the course with the most expected xp per second (xp x success / interval) at
+  `agility.min_success` (80, was 100: only Climb 1 was ever run); below 100% food goes into the
+  Agility slot so auto-eat covers the failed runs.
+- Armour level requirements come from the Smithing recipe (`gear_level`, `gear_req` in the state):
+  Steel 30, Mithril 40, Adamant 50 Defence, so the guesses were right. Missing pieces are made
+  through the recipe chain (bars smelted from ore first).
 - Bank tabs are placed by position, never by number: the user reordered them ("Tab 1, Tab 3, Tab 2")
   and the number-based spacing put "Tab 1" in the sidebar, so a cell click opened Combat.
 - Recipe categories are found with `read_union`: a single read missed "Arrows" at UI scale 0.81, so

@@ -176,6 +176,7 @@ class Bot:
         self.known_targets: dict[str, list[str]] = {}  # skill -> cards started before (their items are in the bank)
         self.last_open_items = 0.0
         self.quest_checked = 0.0
+        self.goals_checked = 0.0
         self.last_gear_check = 0.0
         self.gear: dict[str, list[str]] = {}  # skill -> Toolbelt items worn (as the bank shows them)
         self.quiet_until = 0.0        # after "everything skipped": do not retry every tick
@@ -271,6 +272,8 @@ class Bot:
         self.quest = data.get("quest", {})                 # {quest, step, item, have, need}: last read
         self.recipe_index = data.get("recipe_index", {})   # {"t", "items": {name: [skill, category]}}
         self.gear_req = data.get("gear_req", {})           # {"Mithril Helmet": 20}: level to wear, from the recipe
+        self.goals_done = data.get("goals_done", {})       # goal item -> time it was bought
+        self.goal_needs: dict[str, dict[str, int]] = {}    # goal item -> {material: still short}
         self.weapon = data.get("weapon", {})
         self.hunt_survey = data.get("hunt_survey", {})
         self.jars_on = data.get("jars_on", {})
@@ -298,7 +301,7 @@ class Bot:
         v = self.vitals
         data = {"food": self.food, "food_read_at": self.food_read_at, "fish_table": self.fish_table,
                 "fish_read_at": self.fish_read_at, "cooking_level": self.cooking_level,
-                "cooking_next": self.cooking_next, "fire_logs": self.fire_logs, "fire_next": self.fire_next, "known_targets": self.known_targets, "shop": self.shop, "ranch": self.ranch, "cards": self.cards, "gear": self.gear, "events": self.events[-400:], "slayer": self.slayer, "gold_seen": self.gold_seen, "plot_prices": self.plot_prices, "cycle": self.cycle_state(), "recipe_raw": self.recipe_raw, "thief_survey": getattr(self, "thief_survey", {}), "auto_eat_short": getattr(self, "auto_eat_short", {}), "too_hard": getattr(self, "too_hard", {}), "item_catalog": getattr(self, "item_catalog", {}), "quest": getattr(self, "quest", {}), "recipe_index": getattr(self, "recipe_index", {}), "gear_req": getattr(self, "gear_req", {}), "weapon": getattr(self, "weapon", {}), "hunt_survey": getattr(self, "hunt_survey", {}), "jars_on": getattr(self, "jars_on", {}), "stance_map": getattr(self, "stance_map", {}), "recipes_made": getattr(self, "recipes_made", {}), "gp_rate": getattr(self, "gp_rate", {}), "game_build": getattr(self, "game_build", None), "bar_extent": dict(self.g.bar_extent),
+                "cooking_next": self.cooking_next, "fire_logs": self.fire_logs, "fire_next": self.fire_next, "known_targets": self.known_targets, "shop": self.shop, "ranch": self.ranch, "cards": self.cards, "gear": self.gear, "events": self.events[-400:], "slayer": self.slayer, "gold_seen": self.gold_seen, "plot_prices": self.plot_prices, "cycle": self.cycle_state(), "recipe_raw": self.recipe_raw, "thief_survey": getattr(self, "thief_survey", {}), "auto_eat_short": getattr(self, "auto_eat_short", {}), "too_hard": getattr(self, "too_hard", {}), "item_catalog": getattr(self, "item_catalog", {}), "quest": getattr(self, "quest", {}), "recipe_index": getattr(self, "recipe_index", {}), "gear_req": getattr(self, "gear_req", {}), "goals_done": getattr(self, "goals_done", {}), "weapon": getattr(self, "weapon", {}), "hunt_survey": getattr(self, "hunt_survey", {}), "jars_on": getattr(self, "jars_on", {}), "stance_map": getattr(self, "stance_map", {}), "recipes_made": getattr(self, "recipes_made", {}), "gp_rate": getattr(self, "gp_rate", {}), "game_build": getattr(self, "game_build", None), "bar_extent": dict(self.g.bar_extent),
                 "learn_queue": getattr(self, "learn_queue", []), "step_runs": getattr(self, "step_runs", {}), "armour_checked": getattr(self, "armour_checked", None), "inventory": self.inventory, "shop_read_at": self.shop_read_at, "catalog": self.catalog, "levels": self.levels,
                 "vitals": [v.hp, v.hp_max, v.food_heal, v.food_count] if v else None}
         try:
@@ -721,16 +724,27 @@ class Bot:
             if st and st.skill == "Agility":
                 ok = True
             else:
-                name = self.g.start_agility(self.cfg.get("agility", {}).get("min_success", 100))
+                agcfg = self.cfg.get("agility", {})
+                name = self.g.start_agility(agcfg.get("min_success", 80))
                 ok = name is not None
                 self.target_name = name or ""
                 if not ok:
-                    self.skip_reason = "no Agility course that never fails"
+                    self.skip_reason = f"no Agility course with {agcfg.get('min_success', 80)}% success or more"
+                elif (getattr(self.g, "agility_success", 100) or 100) < 100:
+                    # A failed run hurts (Climb 3: 1-42 HP): the game's auto-eat needs food in the Agility slot.
+                    for heals, food in self.food_choices(agcfg.get("min_food", 20))[:3]:
+                        if self.g.equip_food(food, "Agility") or self.g.food_already_equipped:
+                            break
+                    self.g.open_skill("Agility")
         elif skill in RECIPE_SKILLS:
             ok = self.start_recipe_skill(act)
         elif skill in GRIDS:
             target = act.get("target", "best")
-            if skill == "Mining" and target.split()[:1] == ["smeltable"]:
+            saving = self.goal_target(skill) if skill in ("Woodcutting", "Mining") and not act.get("only") else None
+            if saving and not act.get("only_while_stock_below"):
+                log.info("%s: %s for a goal (%s)", skill, saving, ", ".join(self.goal_needs))
+                target = saving
+            elif skill == "Mining" and target.split()[:1] == ["smeltable"]:
                 target = self.smeltable_ore() or "best Ore Vein"
             if guard and skill != "Astrology":
                 # No upgrades now: only a card done before, so its items already have a place.
@@ -1906,6 +1920,68 @@ class Bot:
         if made and not self.g.dry_run:
             self.event("gear", "Fireflies in a Jar made for " + ", ".join(made))
 
+    def check_goals(self) -> None:
+        """Save up for a Shop item the user named (`goals`, e.g. The Grain Mill: 750 Oak Log, Stone and
+        Molten Glass). Its card's cost chips give what is there; the materials come in the card's order.
+        What is short steers the rotation (`goal_needs`: Woodcutting and Mining targets), Molten Glass
+        is smelted from bought sand, and the item is bought once every chip is covered."""
+        needs = {}
+        for name, goal in self.cfg.get("goals", {}).items():
+            if name in self.goals_done:
+                continue
+            card = self.g.shop_item(goal.get("category", "Farming"), name)
+            if not card:
+                log.info("goals: no card for %s in %s", name, goal.get("category"))
+                continue
+            mats = goal.get("materials", [])
+            costs = card["costs"][-len(mats):] if mats else card["costs"]
+            short = {m: need - (have or 0) for m, (have, need) in zip(mats, costs) if need and (have or 0) < need}
+            if not short and card["enabled"]:
+                self.g.hold(card["buy"], f"buy {name}", 4.0, action=True)
+                if not self.g.dry_run:
+                    self.goals_done[name] = time.time()
+                    self.event("bought", f"{name} bought (saved up: {', '.join(mats)})")
+                    self.save_state()
+                continue
+            if short != self.goal_needs.get(name):
+                self.event("game", f"Saving for {name}: still short " + ", ".join(f"{n:,} {m}" for m, n in short.items()))
+            needs[name] = short
+        self.goal_needs = needs
+        glass = max((s.get("Molten Glass", 0) for s in needs.values()), default=0)
+        if glass:
+            self.supply_glass(min(glass, self.cfg.get("goals_glass_batch", 200)))
+
+    def supply_glass(self, count: int) -> None:
+        """Smelt Molten Glass (1 Bucket of Sand each); sand comes from the Shop, 100 at a time."""
+        sand = self.known_count("Bucket of Sand")
+        for _ in range(max(1, min(5, -(-count // 100)))):
+            if sand is not None and sand >= count:
+                break
+            card = self.g.shop_item("Items & Materials", "Bucket of Sand")
+            price = max((need for _, need in card["costs"]), default=0) if card else 0
+            if not card or not card["enabled"] or (self.gold or 0) - price < self.keep_gold():
+                break
+            self.g.hold(card["buy"], "buy Bucket of Sand", 4.0, action=True)
+            if self.g.dry_run:
+                break
+            sand = None  # how many came depends on the Shop's Buy Quantity
+            self.gold = (self.gold or 0) - price
+            self.event("bought", f"Bucket of Sand for {price:,} GP (Molten Glass for a goal; the Shop's Buy Quantity)", gp=price)
+        self.task = "smelting Molten Glass for a goal"
+        made = self.g.make_count("Smithing", "Smelting", "Molten Glass", count, 2.5)
+        if made and not self.g.dry_run:
+            self.event("activity", f"Smelted about {made} Molten Glass for a goal")
+
+    def goal_target(self, skill: str) -> str | None:
+        """A card target for Woodcutting or Mining that brings in a material a goal still needs."""
+        wanted = [m for short in self.goal_needs.values() for m in short]
+        for m in wanted:
+            if skill == "Woodcutting" and m.endswith(" Log"):
+                return m.replace(" Log", " Tree")  # Oak Log -> Oak Tree
+            if skill == "Mining" and (m.endswith(" Ore") or m in ("Stone", "Coal", "Rune Essence")):
+                return m                           # cards are named after what they give ("Copper Ore", "Stone")
+        return None
+
     def supply_vials(self) -> bool:
         """Make Vials for Herblore: buy Bucket of Sand when short (cheap), smelt Molten Glass, craft
         Pack of Vials. Returns True when packs were made."""
@@ -2157,6 +2233,10 @@ class Bot:
             cond = act.get("only_while_stock_below")
             if cond:
                 goals[cond[0]] = max(goals.get(cond[0], 0), int(cond[1]))
+        for name, goal in self.cfg.get("goals", {}).items():  # saving for a Shop item: never sell its materials
+            if name not in self.goals_done:
+                for mat in goal.get("materials", []):
+                    goals[mat] = max(goals.get(mat, 0), 10 ** 9)
         out = [(name, max(keep, next((g for k, g in goals.items() if similar(k, name) >= 0.9), 0))) for name, keep in out]
         return list(dict.fromkeys(out))
 
@@ -2575,6 +2655,11 @@ class Bot:
                     self.sell_spare()
             if self.learn_queue and self.current["skill"] not in ("Thieving", "Combat"):
                 self.learn_items()
+            if (self.cfg.get("goals") and self.current["skill"] not in ("Thieving", "Combat")
+                    and now - self.goals_checked >= self.cfg.get("goals_minutes", 30) * 60):
+                self.goals_checked = now
+                self.task = "saving for a Shop item"
+                self.check_goals()
             qcfg = self.cfg.get("quests", {})
             if (qcfg.get("enabled", True) and self.current["skill"] not in ("Thieving", "Combat")
                     and now - self.quest_checked >= qcfg.get("every_minutes", 20) * 60):

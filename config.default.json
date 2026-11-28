@@ -306,7 +306,8 @@
     "vial_packs": 2
   },
   "agility": {
-    "min_success": 100
+    "min_success": 80,
+    "min_food": 20
   },
   "money": {
     "steer": true,
@@ -328,5 +329,15 @@
   "quests": {
     "enabled": true,
     "every_minutes": 20
+  },
+  "goals": {
+    "The Grain Mill": {
+      "category": "Farming",
+      "materials": [
+        "Oak Log",
+        "Stone",
+        "Molten Glass"
+      ]
+    }
   }
 }

@@ -1888,7 +1888,10 @@ class Game:
         safe = [(loc, c) for loc, c in found if c["success"] is not None and c["success"] >= min_success]
         if not safe:
             return None
-        loc, best = max(safe, key=lambda lc: (lc[1]["xp"] or 1) / (lc[1]["seconds"] or 5))
+        # Expected skill xp per second: xp only for a completed run. With the 100% floor only Climb 1
+        # (+3 per 5 s) was ever run while Climb 3 (84%, +10 per 9 s) gives half again as much.
+        loc, best = max(safe, key=lambda lc: (lc[1]["xp"] or 1) * (lc[1]["success"] or 0) / 100 / (lc[1]["seconds"] or 5))
+        self.agility_success = best["success"]
         if loc != here:
             if not self.go_thieving_location(loc):
                 return None
@@ -2883,15 +2886,27 @@ class Game:
         if not cat:
             return None
         self.click(cat, f"shop category {category}", settle=0.8)
-        jump = find(self.read_union(0.22, 0.08, 0.60, 0.16), "Jump to", 0.7)
-        for k in range(-1, 5):
-            if k >= 0:
-                if not jump:
-                    break
+        head = self.read_union(0.22, 0.08, 0.60, 0.16)
+        # "Jump to:" reads as "p to:" at UI scale 0.81: a short line ending in "to:" will do.
+        jump = find(head, "Jump to", 0.7) or next((ln for ln in head if re.search(r"\bto:\s*$", ln.text)
+                                                   and len(ln.text) <= 9), None)
+        w, h = self.win.size
+        for k in range(-1, 18):
+            if 0 <= k < 5 and jump:
                 self.win.click(jump.x + jump.w + self.px(22) + k * self.px(46), jump.cy)
                 time.sleep(0.9)
+            elif k >= 0:  # no (more) jump icons: scroll through the category instead, in small steps
+                if k == 5:  # from the top
+                    self.win.scroll(int(w * 0.60), int(h * 0.60), 30)
+                self.win.scroll(int(w * 0.60), int(h * 0.60), -3)  # 5 notches skipped The Grain Mill
+                self.park_mouse()
+                time.sleep(0.6)
             lines = self.read_union(0.22, 0.06, 1.0, 0.97)
-            title = find(lines, name, 0.85)
+            # A section can carry the item's name too ("The Grain Mill" header above its card): the card
+            # title is the one with a "Costs" line under it.
+            titles = sorted((ln for ln in lines if similar(ln.text, name) >= 0.85), key=lambda ln: ln.cy)
+            title = next((t for t in titles if any("costs" in ln.text.lower() and 0 < ln.cy - t.cy < self.px(420)
+                                                  and abs(ln.cx - t.cx) < self.px(260) for ln in lines)), None)
             if not title:
                 continue
             card = [ln for ln in lines if abs(ln.cx - title.cx) < self.px(260) and 0 <= ln.cy - title.cy < self.px(420)]
@@ -2900,10 +2915,16 @@ class Game:
             if not buy or not head:
                 continue  # the card runs off the bottom: try the next jump
             img = self.snap()
-            x0 = max(title.cx - self.px(250), 0)
-            tall = np.ascontiguousarray(img[head.cy + self.px(8):buy.cy - self.px(15), x0:title.cx + self.px(250)])
-            chips = [read_cost_chip(tall[b:d, a:c]) for a, b, c, d in cost_chips(tall, self.px(70), self.px(38))]
-            costs = [(have or 0, need) for have, need in chips if need]
+            # Centre on "Costs & Requirements": titles are left-aligned and the chips sit in the middle.
+            x0 = max(head.cx - self.px(250), 0)
+            tall = np.ascontiguousarray(img[head.cy + self.px(8):buy.cy - self.px(15), x0:head.cx + self.px(250)])
+            boxes = cost_chips(tall, self.px(70), self.px(38)) or cost_chips(tall, self.px(60), self.px(26))
+            chips = [read_cost_chip(tall[b:d, a:c]) for a, b, c, d in boxes]
+            # The white "/ 750" is not read on every chip (The Grain Mill: 3 chips, one need read): a
+            # chip whose "have" was read borrows the need the others agree on.
+            needs = [n for _, n in chips if n]
+            common = max(set(needs), key=needs.count) if needs else None
+            costs = [(have or 0, need or common) for have, need in chips if need or (have is not None and common)]
             px = img[buy.cy, buy.cx].astype(int)
             enabled = bool(px[1] > px[0] + 40 and px[1] > px[2] + 40)  # green when it can be bought, grey when not
             return {"costs": costs, "buy": buy, "enabled": enabled}
