@@ -320,5 +320,9 @@
     "enabled": true,
     "retry_minutes": 5,
     "restart_hung_minutes": 20
+  },
+  "quests": {
+    "enabled": true,
+    "every_minutes": 20
   }
 }

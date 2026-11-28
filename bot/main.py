@@ -175,6 +175,7 @@ class Bot:
         self.stances: dict[str, list[str]] = {}  # stance -> stats it trains (read once per run)
         self.known_targets: dict[str, list[str]] = {}  # skill -> cards started before (their items are in the bank)
         self.last_open_items = 0.0
+        self.quest_checked = 0.0
         self.last_gear_check = 0.0
         self.gear: dict[str, list[str]] = {}  # skill -> Toolbelt items worn (as the bank shows them)
         self.quiet_until = 0.0        # after "everything skipped": do not retry every tick
@@ -267,6 +268,8 @@ class Bot:
         self.too_hard = data.get("too_hard", {})
         self.drop_misread_too_hard()
         self.item_catalog = data.get("item_catalog", {})
+        self.quest = data.get("quest", {})                 # {quest, step, item, have, need}: last read
+        self.recipe_index = data.get("recipe_index", {})   # {"t", "items": {name: [skill, category]}}
         self.weapon = data.get("weapon", {})
         self.hunt_survey = data.get("hunt_survey", {})
         self.jars_on = data.get("jars_on", {})
@@ -294,7 +297,7 @@ class Bot:
         v = self.vitals
         data = {"food": self.food, "food_read_at": self.food_read_at, "fish_table": self.fish_table,
                 "fish_read_at": self.fish_read_at, "cooking_level": self.cooking_level,
-                "cooking_next": self.cooking_next, "fire_logs": self.fire_logs, "fire_next": self.fire_next, "known_targets": self.known_targets, "shop": self.shop, "ranch": self.ranch, "cards": self.cards, "gear": self.gear, "events": self.events[-400:], "slayer": self.slayer, "gold_seen": self.gold_seen, "plot_prices": self.plot_prices, "cycle": self.cycle_state(), "recipe_raw": self.recipe_raw, "thief_survey": getattr(self, "thief_survey", {}), "auto_eat_short": getattr(self, "auto_eat_short", {}), "too_hard": getattr(self, "too_hard", {}), "item_catalog": getattr(self, "item_catalog", {}), "weapon": getattr(self, "weapon", {}), "hunt_survey": getattr(self, "hunt_survey", {}), "jars_on": getattr(self, "jars_on", {}), "stance_map": getattr(self, "stance_map", {}), "recipes_made": getattr(self, "recipes_made", {}), "gp_rate": getattr(self, "gp_rate", {}), "game_build": getattr(self, "game_build", None), "bar_extent": dict(self.g.bar_extent),
+                "cooking_next": self.cooking_next, "fire_logs": self.fire_logs, "fire_next": self.fire_next, "known_targets": self.known_targets, "shop": self.shop, "ranch": self.ranch, "cards": self.cards, "gear": self.gear, "events": self.events[-400:], "slayer": self.slayer, "gold_seen": self.gold_seen, "plot_prices": self.plot_prices, "cycle": self.cycle_state(), "recipe_raw": self.recipe_raw, "thief_survey": getattr(self, "thief_survey", {}), "auto_eat_short": getattr(self, "auto_eat_short", {}), "too_hard": getattr(self, "too_hard", {}), "item_catalog": getattr(self, "item_catalog", {}), "quest": getattr(self, "quest", {}), "recipe_index": getattr(self, "recipe_index", {}), "weapon": getattr(self, "weapon", {}), "hunt_survey": getattr(self, "hunt_survey", {}), "jars_on": getattr(self, "jars_on", {}), "stance_map": getattr(self, "stance_map", {}), "recipes_made": getattr(self, "recipes_made", {}), "gp_rate": getattr(self, "gp_rate", {}), "game_build": getattr(self, "game_build", None), "bar_extent": dict(self.g.bar_extent),
                 "learn_queue": getattr(self, "learn_queue", []), "step_runs": getattr(self, "step_runs", {}), "armour_checked": getattr(self, "armour_checked", None), "inventory": self.inventory, "shop_read_at": self.shop_read_at, "catalog": self.catalog, "levels": self.levels,
                 "vitals": [v.hp, v.hp_max, v.food_heal, v.food_count] if v else None}
         try:
@@ -389,6 +392,93 @@ class Bot:
 
     def known_item(self, name: str) -> bool:
         return any(similar(k, name) >= 0.9 for k in self.item_catalog)
+
+    # --- quests -----------------------------------------------------------------------
+
+    QUEST_SKILLS = ["Fletching", "Smithing", "Crafting", "Runecrafting", "Herblore", "Cooking"]
+
+    def check_quest(self) -> None:
+        """Follow the quest in progress: note its step in the journal, press Give once enough items are
+        there, and otherwise make the item (and what goes into it) on the recipe pages."""
+        q = self.g.read_quest(hover=True)
+        if not q:
+            return
+        old = self.quest
+        same_step = old.get("quest") == q["quest"] and old.get("step") == q["step"]
+        if not q["item"] and same_step:
+            q["item"] = old.get("item")  # the name needs the real mouse; keep the one read before
+        if not same_step or (q["item"] and q["item"] != old.get("item")):
+            need = f": {q['have']}/{q['need']} {q['item'] or 'items'}" if q["need"] else ""
+            self.event("game", f"Quest {q['quest']}, step {q['step']}{need}" + (f" ({q['text']})" if q["text"] else ""))
+        self.quest = {k: q[k] for k in ("quest", "step", "item", "have", "need")}
+        self.save_state()
+        if not q["need"]:
+            return  # a step without items (talk, fight, reach a level): the user's part
+        if q["have"] >= q["need"]:
+            if self.g.give_quest_items(q):
+                self.event("game", f"Quest {q['quest']}: gave {q['need']} {q['item'] or 'items'}")
+                self.quest_checked = 0.0  # look at the next step on the next round
+            return
+        if not q["item"]:
+            log.info("quests: %s needs %d more of an item whose name is not known yet (the real mouse reads it)",
+                     q["quest"], q["need"] - q["have"])
+            return
+        made = self.make_item(q["item"], q["need"] - q["have"])
+        log.info("quests: %s %s for %s", "made" if made else "could not make", q["item"], q["quest"])
+
+    def recipe_location(self, item: str, refresh_ok: bool = True) -> tuple[str, str] | None:
+        """(skill, category) of the recipe that makes `item`, from an index of every recipe page.
+        Building the index opens each recipe skill's categories (a few minutes): once a day, or when
+        an item is not in it (at most every 6 hours)."""
+        idx = self.recipe_index
+        items = idx.get("items", {})
+        hit = max(items.items(), key=lambda kv: similar(kv[0], item), default=None)
+        if hit and similar(hit[0], item) >= 0.85:
+            return tuple(hit[1])
+        age = time.time() - idx.get("t", 0)
+        if not refresh_ok or (items and age < 6 * 3600):
+            return None
+        self.task = "reading every recipe page (for the quest)"
+        found = {}
+        for skill in self.QUEST_SKILLS:
+            # The page has to really be open: once Runecrafting stayed on Crafting and its categories
+            # went into the index under the wrong skill.
+            if not self.g.open_skill(skill) or not self.g.on_page(skill):
+                continue
+            for category in self.g.recipe_categories():
+                for r in self.g.category_recipes(skill, category):
+                    found.setdefault(r.name, [skill, category])
+        if found:
+            self.recipe_index = {"t": time.time(), "items": found}
+            self.save_state()
+            log.info("recipes: %d recipes in the index", len(found))
+        return self.recipe_location(item, refresh_ok=False)
+
+    def make_item(self, item: str, amount: int, depth: int = 0) -> bool:
+        """Make about `amount` of `item`: first what goes into it when that is short and has a recipe
+        itself (two levels deep: Stone -> Stone Arrowtips -> Stone Arrows), then the item."""
+        loc = self.recipe_location(item)
+        if not loc:
+            log.info("quests: no recipe makes %s", item)
+            return False
+        skill, category = loc
+        recipe = self.g.find_recipe_card(skill, category, item)
+        if not recipe:
+            log.info("quests: %s not found in %s > %s", item, skill, category)
+            return False
+        io = self.g.recipe_io()
+        makes = -(-amount // io["output"])  # each make gives `output` pieces
+        for name, (qty, have) in io["inputs"].items():
+            short = qty * makes - have
+            if short <= 0:
+                continue
+            if depth >= 2 or not self.make_item(name, short, depth + 1):
+                log.info("quests: %s needs %d more %s", item, short, name)
+                return False
+        made = self.g.make_count(skill, category, recipe.name, makes, io["seconds"] or 3.0)
+        if made:
+            self.event("game", f"Made {made * io['output']} {recipe.name} for the quest")
+        return bool(made)
 
     def learn_items(self) -> None:
         """Read what each newly seen item is, write it in the journal and let the matching routine
@@ -2400,6 +2490,12 @@ class Bot:
                     self.sell_spare()
             if self.learn_queue and self.current["skill"] not in ("Thieving", "Combat"):
                 self.learn_items()
+            qcfg = self.cfg.get("quests", {})
+            if (qcfg.get("enabled", True) and self.current["skill"] not in ("Thieving", "Combat")
+                    and now - self.quest_checked >= qcfg.get("every_minutes", 20) * 60):
+                self.quest_checked = now
+                self.task = "looking at the quest"
+                self.check_quest()
             if self.price_queue and self.current["skill"] not in ("Thieving", "Combat"):
                 # Sale prices for GP per minute: a few per round, read from the bank's Sell block.
                 self.task = "looking up sale prices"

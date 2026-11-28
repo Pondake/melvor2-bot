@@ -643,6 +643,20 @@ into bars by rule. No game files are modified.
   loot x price estimate is only the fallback (Combat, or when the bar shows no GP).
 - The bank counter top left ("223 / 295") was read as 773 once: a reading with used > total is
   thrown away.
+- Quests (`Bot.check_quest`, every `quests.every_minutes` (20) in the errand round, not during
+  Thieving or Combat): `Game.read_quest` opens Quests (the top-bar label is often only read inside
+  "Bank Shop Quests Completion": `_top_label` cuts it out), takes the last unlocked step (later ones
+  say "Progress further ..."), and when that step has a Give button reads "have / need" by colour
+  (`have_need`, skipping the icon). The item has no name on the page: its tooltip shows only for the
+  real mouse, hovered `px(42)` right of Give (`+22` was the button's edge). Enough -> Give; short ->
+  `Bot.make_item`: `recipe_location` (an index of every recipe page, `recipe_index` in the state,
+  rebuilt daily) -> `find_recipe_card` -> `recipe_io` (inputs with qty/have, output per make; a lone
+  "0" have is missing from OCR and counts as 0) -> make what is short first, two levels deep ->
+  `make_count`. Done live 2026-11-28: Stone -> 30 Stone Arrowtips (Smithing > Stone Gear) -> 24 Stone
+  Arrows (Fletching > Arrows) -> Give. Steps without items (Slay 3 Archery Target with Ranged) only
+  go to the journal.
+- Recipe categories are found with `read_union`: a single read missed "Arrows" at UI scale 0.81, so
+  Fletching never saw an arrow recipe.
 - Tested live: Mining, Woodcutting (Cut), Astrology (Select + Study), Fishing spot choice,
   Farming harvest, plant and water, Cooking (Create), Firemaking, Fletching, Runecrafting,
   equipping food from the bank, Thieving with the Eat click, Combat, opening Bird Nests, buying

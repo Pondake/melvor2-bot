@@ -1650,7 +1650,7 @@ class Game:
 
     def category_recipes(self, skill: str, category: str) -> list[Recipe]:
         """Unlocked recipes of one category (page open) with the first ingredient's have / need."""
-        cat = find(self.read(0.10, 0.08, 0.335, 0.96), category, 0.85)
+        cat = find(self.read_union(0.10, 0.08, 0.335, 0.96), category, 0.85)
         if not cat:
             log.debug("%s: category %s not found", skill, category)
             return []
@@ -1706,7 +1706,7 @@ class Game:
 
     def create_recipe(self, skill: str, recipe: Recipe) -> bool:
         """Select a recipe (its page open) and press Create."""
-        cat = find(self.read(0.10, 0.08, 0.335, 0.96), recipe.category, 0.85)
+        cat = find(self.read_union(0.10, 0.08, 0.335, 0.96), recipe.category, 0.85)
         if cat:
             self.click(cat, f"{skill} category {recipe.category}")
         card = find(self._named(self.read_union(0.24, 0.12, 0.57, 0.95)), recipe.name, 0.85)
@@ -1772,6 +1772,59 @@ class Game:
             if len(nums) >= 2:
                 out[name] = parse_amount(nums[-1].text.strip())
         return out
+
+    def recipe_io(self) -> dict:
+        """Selected recipe panel: {"inputs": {item: (qty, have)}, "output": qty per make, "seconds": per make}.
+
+        A lone "0" in "You Have" is never read by OCR (Stone Arrowtips 4 / 0 was left out of
+        `recipe_inputs`): a row with only its Qty counts as none in the bank."""
+        lines = self.read_union(0.57, 0.08, 0.80, 0.55)
+        tables = sorted((ln for ln in lines if similar(ln.text.strip(), "Qty") >= 0.9), key=lambda ln: ln.cy)
+        out_head = next((ln for ln in lines if similar(ln.text.strip(), "Output") >= 0.9
+                         and tables and ln.cy > tables[0].cy + self.px(20)), None)
+        result = {"inputs": {}, "output": 1, "seconds": None}
+        secs = next((re.search(r"(\d+[.,]\d+)\s*s\b", ln.text) for ln in lines if re.search(r"\d+[.,]\d+\s*s\b", ln.text)), None)
+        if secs:
+            result["seconds"] = float(secs.group(1).replace(",", "."))
+        for ln in lines:
+            name = ln.text.strip()
+            if (not re.fullmatch(r"[A-Za-z][A-Za-z' ]{2,}", name) or not tables or ln.cy <= tables[0].cy
+                    or name in ("Input", "Qty", "You Have", "Output")):
+                continue
+            def amount(text: str) -> int | None:  # "4,344 e": the coin icon after a number reads as a letter
+                m = re.match(r"\s*(\d[\d,.]*\s*[KkM]?)", text)
+                return parse_amount(m.group(1)) if m else None
+
+            nums = sorted((o for o in lines if abs(o.cy - ln.cy) < self.px(12) and o.x > ln.x + ln.w
+                           and amount(o.text) is not None), key=lambda o: o.x)
+            if not nums:
+                continue
+            qty = amount(nums[0].text)
+            have = amount(nums[1].text) if len(nums) > 1 else 0
+            if out_head and ln.cy > out_head.cy:
+                result["output"] = max(1, qty or 1)
+            else:
+                result["inputs"][name] = (qty or 1, have or 0)
+        return result
+
+    def find_recipe_card(self, skill: str, category: str, name: str) -> Recipe | None:
+        """Open a skill's category and select the card of `name`; None when it is not there."""
+        if not self.open_skill(skill):
+            return None
+        recipes = [r for r in self.category_recipes(skill, category) if similar(r.name, name) >= 0.85]
+        if not recipes:
+            return None
+        card = find(self._named(self.read_union(0.24, 0.12, 0.57, 0.95)), recipes[0].name, 0.85)
+        if not card:  # below the fold
+            w, h = self.win.size
+            self.win.scroll(int(w * 0.40), int(h * 0.60), -6)
+            self.park_mouse()
+            time.sleep(0.5)
+            card = find(self._named(self.read_union(0.24, 0.12, 0.57, 0.95)), recipes[0].name, 0.85)
+        if not card:
+            return None
+        self.click(card, f"select {recipes[0].name}")
+        return recipes[0]
 
     def agility_courses(self) -> list[dict]:
         """Agility page: every course card ("Climb 1") with success %, seconds per run, skill xp and
@@ -2893,6 +2946,103 @@ class Game:
         """The icon above a top-bar label ("Bank", "Shop"). A click on the label itself was lost after
         the Cooking page had been read (four times in a row); the icon always took it."""
         return Line(label.text, label.x, label.y - self.px(26), label.w, self.px(18))
+
+    def _top_label(self, name: str) -> Line | None:
+        """A top-bar label. "Quests" is often read only inside "Bank Shop Quests Completion": then it is
+        cut out of that line by the position of its letters."""
+        lines = self.read_union(0.15, 0.0, 0.50, 0.08)
+        hit = find(lines, name, 0.85)
+        if hit:
+            return hit
+        for ln in lines:
+            i = ln.text.find(name)
+            if i >= 0 and len(ln.text) > len(name):
+                per = ln.w / len(ln.text)
+                return Line(name, int(ln.x + i * per), ln.y, int(len(name) * per), ln.h)
+        return None
+
+    # --- Quests ----------------------------------------------------------------------
+
+    def read_quest(self, hover: bool = True) -> dict | None:
+        """Quests page: the quest in progress and its current step.
+
+        A step that wants items shows "Give", the item as an icon without a name, and a red "have"
+        with a white "/ need" ("1 / 24"). The name comes from the icon's hover tooltip. Returns
+        {quest, step, text, item, have, need, give: Line | None} or None when the page did not open."""
+        label = self._top_label("Quests")
+        if not label:
+            log.warning("quests: button not found")
+            return None
+        self.click(self._top_icon(label), "open quests", settle=1.2)
+        lines = self.read_union(0.33, 0.06, 0.64, 0.97)
+        tasks, syn = find(lines, "Tasks", 0.9), find(lines, "Synopsis", 0.85)
+        if not tasks or not syn:
+            log.info("quests: no quest details (none started?)")
+            return None
+        title = max((ln for ln in lines if ln.cy < syn.cy and not re.match(r"\s*Act\s*\d", ln.text)
+                     and "quest details" not in ln.text.lower() and re.search(r"[A-Za-z]{3,}", ln.text)),
+                    key=lambda ln: ln.h, default=None)
+        steps = sorted((ln for ln in lines if re.match(r"\s*Step\s*\d+\s*/\s*\d+", ln.text, re.I)), key=lambda ln: ln.cy)
+        gives = sorted((ln for ln in lines if re.search(r"\bGive\s*$", ln.text)), key=lambda ln: ln.cy)
+        out = {"quest": title.text.strip() if title else "?", "step": None, "text": "", "item": None,
+               "have": None, "need": None, "give": None}
+        # The current step is the last one that is unlocked; later ones say "Progress further in the
+        # Quest to unlock this step". A Give belongs to it only when it sits inside its block (a done
+        # step keeps its greyed Give and "25 / 24").
+        locked = [ln for ln in lines if "progress further" in ln.text.lower()]
+        open_steps = [s for s in steps if not any(0 < l.cy - s.cy < self.px(50) for l in locked)]
+        step = open_steps[-1] if open_steps else (steps[0] if steps else None)
+        nxt_head = min((s.cy for s in steps if step and s.cy > step.cy), default=10 ** 6)
+        anchor = next((g for g in gives if step and step.cy < g.cy < nxt_head), None)
+        if step:
+            m = re.search(r"(\d+)\s*/\s*(\d+)", step.text)
+            out["step"] = f"{m.group(1)}/{m.group(2)}" if m else step.text.strip()
+            nxt = [ln for ln in lines if step.cy < ln.cy < min(nxt_head, step.cy + self.px(90))
+                   and ln.h >= self.px(11) and len(ln.text) > 12]
+            out["text"] = " ".join(ln.text.strip() for ln in sorted(nxt, key=lambda ln: ln.cy))[:160]
+        if not anchor:
+            return out
+        img = self.img
+        right = anchor.x + anchor.w
+        y0, y1 = anchor.y - self.px(8), anchor.y + anchor.h + self.px(8)
+        # Icon right after the button, then the count: skip the icon so its colours are not read as "have".
+        for skip in (40, 30, 50):
+            have, need = have_need(img[y0:y1, right + self.px(skip):right + self.px(170)])
+            if need:
+                out["have"], out["need"] = have or 0, need
+                break
+        out["give"] = Line("Give", right - self.px(40), anchor.y, self.px(36), anchor.h)
+        # The item's name is only in the icon's tooltip, which shows for the real mouse only (a posted
+        # hover shows nothing, as with the crop picker): read it while the user is away.
+        if hover and self.real_ok and not self.dry_run and self.real_ok():
+            before = {ln.text for ln in lines}
+            icon_x, icon_y = right + self.px(42), anchor.cy  # +22 was still the edge of the Give button
+            try:
+                with self.win.real_mouse() as m:
+                    m.hover(icon_x, icon_y, settle=1.2)
+                    tip = self.read_union(0.33, 0.06, 0.80, 0.85)
+            except Exception as e:  # noqa: BLE001 - no name this time; the count still works
+                log.warning("quests: real mouse failed (%s)", e)
+                tip = []
+            # The tooltip: "Hold Shift to show Item Stats", then the title with its price ("Stone Arrows [coin] 3").
+            new = sorted((ln for ln in tip if ln.text not in before and abs(ln.cx - icon_x) < self.px(500)),
+                         key=lambda ln: ln.cy)
+            shift = next((ln for ln in new if "hold shift" in ln.text.lower()), None)
+            for ln in new:
+                if shift and ln.cy <= shift.cy:
+                    continue
+                name = re.sub(r"(\s+\S{1,2})?\s*[\d,]*\s*$", "", ln.text.strip())
+                if re.fullmatch(r"[A-Za-z][A-Za-z' ]{2,}", name):
+                    out["item"] = name
+                    break
+        return out
+
+    def give_quest_items(self, quest: dict) -> bool:
+        """Press Give on the quest step read by `read_quest` (Quests page still open)."""
+        if not quest.get("give"):
+            return False
+        self.click(quest["give"], f"give {quest.get('item') or 'items'} for {quest['quest']}", action=True)
+        return True
 
     def _open_bank(self) -> bool:
         bank = find(self.read_union(0.15, 0.0, 0.50, 0.08), "Bank", 0.85)
