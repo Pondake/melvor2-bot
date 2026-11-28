@@ -1748,9 +1748,16 @@ class Game:
         if self.dry_run:
             return count
         time.sleep(count * seconds_each + 0.5)
-        stop = find(self.read_union(0.57, 0.70, 1.0, 0.99), "Stop", 0.85)
-        if stop:
-            self.click(stop, f"stop {skill} after {count} {r.name}", action=True)
+        # Stop must really be pressed (Create runs until the input is gone): look wider, check the status.
+        for _ in range(3):
+            stop = find(self.read_union(0.57, 0.55, 1.0, 0.99), "Stop", 0.85)
+            if stop:
+                self.click(stop, f"stop {skill} after {count} {r.name}", action=True)
+            if self.status().skill != skill:
+                break
+            time.sleep(1.0)
+        else:
+            log.warning("%s: could not stop %s - it keeps using its input", skill, r.name)
         time.sleep(0.5)
         self.last_inputs = self.recipe_inputs() or self.last_inputs  # what is left after making them
         log.info("%s: made about %d %s", skill, count, r.name)
@@ -1806,6 +1813,16 @@ class Game:
             else:
                 result["inputs"][name] = (qty or 1, have or 0)
         return result
+
+    def recipe_requirement(self) -> tuple[str, int] | None:
+        """Selected recipe panel: the level its item needs to wear ("Requirements: Defence Level 20")."""
+        for ln in self.read_union(0.57, 0.08, 0.80, 0.55):
+            m = re.search(r"(Defence|Attack|Strength|Ranged|Magic) Level\s*([\dIlO]+)", ln.text)
+            if m:
+                digits = m.group(2).replace("I", "1").replace("l", "1").replace("O", "0")
+                if digits.isdigit():
+                    return m.group(1), int(digits)
+        return None
 
     def find_recipe_card(self, skill: str, category: str, name: str) -> Recipe | None:
         """Open a skill's category and select the card of `name`; None when it is not there."""

@@ -270,6 +270,7 @@ class Bot:
         self.item_catalog = data.get("item_catalog", {})
         self.quest = data.get("quest", {})                 # {quest, step, item, have, need}: last read
         self.recipe_index = data.get("recipe_index", {})   # {"t", "items": {name: [skill, category]}}
+        self.gear_req = data.get("gear_req", {})           # {"Mithril Helmet": 20}: level to wear, from the recipe
         self.weapon = data.get("weapon", {})
         self.hunt_survey = data.get("hunt_survey", {})
         self.jars_on = data.get("jars_on", {})
@@ -297,7 +298,7 @@ class Bot:
         v = self.vitals
         data = {"food": self.food, "food_read_at": self.food_read_at, "fish_table": self.fish_table,
                 "fish_read_at": self.fish_read_at, "cooking_level": self.cooking_level,
-                "cooking_next": self.cooking_next, "fire_logs": self.fire_logs, "fire_next": self.fire_next, "known_targets": self.known_targets, "shop": self.shop, "ranch": self.ranch, "cards": self.cards, "gear": self.gear, "events": self.events[-400:], "slayer": self.slayer, "gold_seen": self.gold_seen, "plot_prices": self.plot_prices, "cycle": self.cycle_state(), "recipe_raw": self.recipe_raw, "thief_survey": getattr(self, "thief_survey", {}), "auto_eat_short": getattr(self, "auto_eat_short", {}), "too_hard": getattr(self, "too_hard", {}), "item_catalog": getattr(self, "item_catalog", {}), "quest": getattr(self, "quest", {}), "recipe_index": getattr(self, "recipe_index", {}), "weapon": getattr(self, "weapon", {}), "hunt_survey": getattr(self, "hunt_survey", {}), "jars_on": getattr(self, "jars_on", {}), "stance_map": getattr(self, "stance_map", {}), "recipes_made": getattr(self, "recipes_made", {}), "gp_rate": getattr(self, "gp_rate", {}), "game_build": getattr(self, "game_build", None), "bar_extent": dict(self.g.bar_extent),
+                "cooking_next": self.cooking_next, "fire_logs": self.fire_logs, "fire_next": self.fire_next, "known_targets": self.known_targets, "shop": self.shop, "ranch": self.ranch, "cards": self.cards, "gear": self.gear, "events": self.events[-400:], "slayer": self.slayer, "gold_seen": self.gold_seen, "plot_prices": self.plot_prices, "cycle": self.cycle_state(), "recipe_raw": self.recipe_raw, "thief_survey": getattr(self, "thief_survey", {}), "auto_eat_short": getattr(self, "auto_eat_short", {}), "too_hard": getattr(self, "too_hard", {}), "item_catalog": getattr(self, "item_catalog", {}), "quest": getattr(self, "quest", {}), "recipe_index": getattr(self, "recipe_index", {}), "gear_req": getattr(self, "gear_req", {}), "weapon": getattr(self, "weapon", {}), "hunt_survey": getattr(self, "hunt_survey", {}), "jars_on": getattr(self, "jars_on", {}), "stance_map": getattr(self, "stance_map", {}), "recipes_made": getattr(self, "recipes_made", {}), "gp_rate": getattr(self, "gp_rate", {}), "game_build": getattr(self, "game_build", None), "bar_extent": dict(self.g.bar_extent),
                 "learn_queue": getattr(self, "learn_queue", []), "step_runs": getattr(self, "step_runs", {}), "armour_checked": getattr(self, "armour_checked", None), "inventory": self.inventory, "shop_read_at": self.shop_read_at, "catalog": self.catalog, "levels": self.levels,
                 "vitals": [v.hp, v.hp_max, v.food_heal, v.food_count] if v else None}
         try:
@@ -1766,7 +1767,7 @@ class Bot:
             if "2H" not in weapon:
                 pieces.append(("Shield", "Defence", defence))  # a one-handed weapon leaves the off hand for a shield
         for piece, stat, level in pieces:
-            best = [t for t, lvl in self.ARMOUR_TIERS if lvl <= level and (stat == "Defence" or t != "Stone")]
+            best = [t for t, _ in self.ARMOUR_TIERS if self.gear_level(t, piece) <= level and (stat == "Defence" or t != "Stone")]
             worn_tier = None
             for tier in reversed(best):  # best wearable first
                 name = f"{tier} {piece}"
@@ -1784,7 +1785,9 @@ class Bot:
                         worn_tier = tier
                         changed.append(f"put on {name}")
                         break
-                if acfg.get("smith", True) and self.g.smith_one(f"{tier} Gear", name):
+                # Made through the recipe chain: bars are smelted from ore first when they are short
+                # (Mithril and Adamant gear never came because the bars were never there).
+                if acfg.get("smith", True) and (self.make_item(name, 1) or self.g.smith_one(f"{tier} Gear", name)):
                     if self.g.equip_gear(name):
                         worn_tier = tier
                         changed.append(f"smithed and put on {name}")
@@ -1807,6 +1810,25 @@ class Bot:
             self.save_state()
         if changed:
             self.event("gear", "Armour: " + ", ".join(changed))
+
+    def gear_level(self, tier: str, piece: str) -> int:
+        """Level needed to wear `tier piece`, read once from its Smithing recipe ("Requirements: Defence
+        Level 20") and kept in `gear_req`. Until it is read, the guess in ARMOUR_TIERS: those guesses
+        (Mithril 40, Adamant 50) kept Mithril and Adamant gear from ever being made at Defence 33."""
+        name = f"{tier} {piece}"
+        req = self.gear_req.get(name)
+        if req is not None:
+            return req
+        guess = dict(self.ARMOUR_TIERS).get(tier, 99)
+        loc = self.recipe_location(name, refresh_ok=False)
+        if loc and self.g.find_recipe_card(loc[0], loc[1], name):
+            got = self.g.recipe_requirement()
+            if got:
+                self.gear_req[name] = got[1]
+                self.save_state()
+                log.info("gear: %s needs %s %d", name, got[0], got[1])
+                return got[1]
+        return guess
 
     WEAPON_TYPES = ["2H Sword", "Scimitar", "Sword", "Mallet", "Dagger"]  # Smithing's melee weapons
 

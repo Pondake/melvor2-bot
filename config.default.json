@@ -274,11 +274,15 @@
       },
       {
         "bar": "Mithril Bar",
-        "min_ore": 100
+        "min_ore": 50
       },
       {
         "bar": "Gold Bar",
         "min_ore": 100
+      },
+      {
+        "bar": "Adamantite Bar",
+        "min_ore": 50
       }
     ]
   },
